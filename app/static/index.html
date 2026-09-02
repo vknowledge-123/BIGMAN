@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dhan Turnover Scanner</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">NSE Equity</p>
+          <h1>Turnover Scanner</h1>
+        </div>
+        <div class="status-strip">
+          <span id="connectionBadge" class="badge neutral">Idle</span>
+          <span id="updatedAt" class="time">--</span>
+        </div>
+      </header>
+
+      <section class="controls">
+        <form id="credentialsForm" class="panel auth-panel">
+          <div class="panel-head">
+            <i data-lucide="key-round"></i>
+            <h2>Dhan Login</h2>
+          </div>
+          <label>
+            Client ID
+            <input id="clientId" autocomplete="username" placeholder="Client ID" required />
+          </label>
+          <label>
+            Access Token
+            <input id="accessToken" type="password" autocomplete="current-password" placeholder="Access token" required />
+          </label>
+          <button class="primary" type="submit">
+            <i data-lucide="save"></i>
+            Save
+          </button>
+        </form>
+
+        <form id="symbolsForm" class="panel symbols-panel">
+          <div class="panel-head">
+            <i data-lucide="list-plus"></i>
+            <h2>Stocks</h2>
+          </div>
+          <textarea id="symbolsText" spellcheck="false">PREMEXPLN
+TBZ
+COALINDIA
+SKYWAYS
+BHAGERIA
+PINELABS
+SYMBIOTEC
+GSMFOILS
+SOTL
+GLAND
+OIL</textarea>
+          <div class="actions">
+            <button class="secondary" type="submit">
+              <i data-lucide="check"></i>
+              Save List
+            </button>
+            <button id="cacheButton" class="warning" type="button">
+              <i data-lucide="database"></i>
+              Cache Data
+            </button>
+          </div>
+        </form>
+
+        <section class="panel run-panel">
+          <div class="panel-head">
+            <i data-lucide="activity"></i>
+            <h2>Scanner</h2>
+          </div>
+          <div class="metric-grid">
+            <div>
+              <span>Stocks</span>
+              <strong id="stockCount">0</strong>
+            </div>
+            <div>
+              <span>Cached</span>
+              <strong id="cachedCount">0</strong>
+            </div>
+            <div>
+              <span>Turnover</span>
+              <strong id="topTurnover">--</strong>
+            </div>
+            <div>
+              <span>Top %</span>
+              <strong id="topChange">--</strong>
+            </div>
+          </div>
+          <div class="actions vertical">
+            <button id="startButton" class="success" type="button">
+              <i data-lucide="play"></i>
+              Start Live
+            </button>
+            <button id="stopButton" class="danger" type="button">
+              <i data-lucide="square"></i>
+              Stop
+            </button>
+            <button id="repairButton" class="secondary" type="button">
+              <i data-lucide="refresh-cw"></i>
+              Repair Missing
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <section class="message-row">
+        <div id="message" class="message">Ready</div>
+        <div id="unresolved" class="unresolved"></div>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Symbol</th>
+              <th>LTP</th>
+              <th>% Change</th>
+              <th>1m Turnover</th>
+              <th>1m Volume</th>
+              <th>Candle</th>
+              <th>Prev Close</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="stockRows">
+            <tr>
+              <td colspan="9" class="empty">No stocks loaded</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </main>
+  </body>
+</html>

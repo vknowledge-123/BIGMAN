@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from app.dhan_scanner import Candle, Instrument, InstrumentResolver, ScannerEngine, StockState, parse_symbols
+from app.storage import ConfigStore
+
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def test_parse_symbols_deduplicates_and_accepts_commas() -> None:
+    assert parse_symbols(" coalindia\nOIL, oil\tTBZ ") == ["COALINDIA", "OIL", "TBZ"]
+
+
+def test_completed_candle_turnover_uses_candle_close() -> None:
+    candle = Candle(
+        start=datetime(2026, 9, 2, 9, 33, tzinfo=IST),
+        open=100,
+        high=104,
+        low=99,
+        close=102,
+        volume=2500,
+    )
+    assert candle.turnover == 255000
+
+
+def test_snapshot_sorts_by_percent_change_then_turnover(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    first = StockState(Instrument("AAA", "1", "AAA LTD"), previous_close=100, ltp=110, percent_change=10)
+    second = StockState(Instrument("BBB", "2", "BBB LTD"), previous_close=100, ltp=109, percent_change=9)
+    third = StockState(Instrument("CCC", "3", "CCC LTD"), previous_close=100, ltp=110, percent_change=10)
+    first.completed_candle = Candle(datetime(2026, 9, 2, 9, 33, tzinfo=IST), 10, 10, 10, 10, 100)
+    second.completed_candle = Candle(datetime(2026, 9, 2, 9, 33, tzinfo=IST), 10, 10, 10, 10, 100000)
+    third.completed_candle = Candle(datetime(2026, 9, 2, 9, 33, tzinfo=IST), 10, 10, 10, 10, 200)
+
+    with engine._lock:
+        engine._states = {"AAA": first, "BBB": second, "CCC": third}
+
+    assert [row["symbol"] for row in engine.snapshot()["stocks"]] == ["CCC", "AAA", "BBB"]
+
+
+def test_instrument_resolver_selects_nse_equity(tmp_path) -> None:
+    csv_path = tmp_path / "master.csv"
+    csv_path.write_text(
+        "SEM_EXM_EXCH_ID,SEM_SEGMENT,SEM_SMST_SECURITY_ID,SEM_INSTRUMENT_NAME,SEM_TRADING_SYMBOL,SEM_SERIES,SM_SYMBOL_NAME\n"
+        "BSE,E,999,EQUITY,COALINDIA,EQ,WRONG EXCHANGE\n"
+        "NSE,E,20374,EQUITY,COALINDIA,EQ,COAL INDIA LTD\n"
+        "NSE,D,1,FUTCUR,USDINR,NA,USDINR\n",
+        encoding="utf-8",
+    )
+    resolver = InstrumentResolver(csv_path)
+
+    resolved, unresolved = resolver.resolve(["COALINDIA", "MISSING"])
+
+    assert unresolved == ["MISSING"]
+    assert resolved["COALINDIA"].security_id == "20374"
+    assert resolved["COALINDIA"].exchange_segment == "NSE_EQ"
+
+
+def test_cache_previous_closes_updates_state_and_store(tmp_path) -> None:
+    class FakeClient:
+        def ohlc_data(self, *_args, **_kwargs):
+            return {"status": "success", "data": {"NSE_EQ": {}}}
+
+        def historical_daily_data(self, *_args, **_kwargs):
+            return {"status": "success", "data": {"close": [98.5, 101.25]}}
+
+    store = ConfigStore(tmp_path / "config.json")
+    store.update_credentials("client", "token")
+    engine = ScannerEngine(store)
+    engine._client = lambda: FakeClient()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    cached = engine.cache_previous_closes()
+
+    assert cached == {"AAA": 101.25}
+    assert store.load().previous_closes == {"AAA": 101.25}
+
+
+def test_cache_previous_closes_uses_single_ohlc_batch_when_available(tmp_path) -> None:
+    class FakeClient:
+        ohlc_calls = 0
+        historical_calls = 0
+
+        def ohlc_data(self, securities):
+            self.ohlc_calls += 1
+            assert securities == {"NSE_EQ": [123, 456]}
+            return {
+                "status": "success",
+                "data": {
+                    "NSE_EQ": {
+                        "123": {"last_price": 110, "ohlc": {"close": 100}},
+                        "456": {"last_price": 190, "ohlc": {"close": 200}},
+                    }
+                },
+            }
+
+        def historical_daily_data(self, *_args, **_kwargs):
+            self.historical_calls += 1
+            raise AssertionError("Historical fallback should not be called")
+
+    store = ConfigStore(tmp_path / "config.json")
+    store.update_credentials("client", "token")
+    client = FakeClient()
+    engine = ScannerEngine(store)
+    engine._client = lambda: client  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD")),
+            "BBB": StockState(Instrument("BBB", "456", "BBB LTD")),
+        }
+
+    cached = engine.cache_previous_closes()
+    snapshot = engine.snapshot()["stocks"]
+
+    assert client.ohlc_calls == 1
+    assert client.historical_calls == 0
+    assert cached == {"AAA": 100, "BBB": 200}
+    assert {row["symbol"]: row["percent_change"] for row in snapshot} == {"AAA": 10, "BBB": -5}
+
+
+def test_cache_rate_limit_does_not_fan_out_to_historical_calls(tmp_path) -> None:
+    class FakeClient:
+        historical_calls = 0
+
+        def ohlc_data(self, *_args, **_kwargs):
+            return {
+                "status": "failure",
+                "remarks": {
+                    "error_code": "DH-904",
+                    "error_type": "Rate_Limit",
+                    "error_message": "Too many requests",
+                },
+            }
+
+        def historical_daily_data(self, *_args, **_kwargs):
+            self.historical_calls += 1
+            return {"status": "success", "data": {"close": [100]}}
+
+    store = ConfigStore(tmp_path / "config.json")
+    store.update_credentials("client", "token")
+    client = FakeClient()
+    engine = ScannerEngine(store)
+    engine._client = lambda: client  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    assert engine.cache_previous_closes() == {}
+    assert client.historical_calls == 0
+    assert engine.snapshot()["stocks"][0]["status"] == "rate limited"
+
+
+def test_quote_ticks_complete_previous_one_minute_candle(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    state = StockState(Instrument("AAA", "123", "AAA LTD"), previous_close=100)
+    with engine._lock:
+        engine._states = {"AAA": state}
+
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "101.00", "volume": 1000, "LTT": "15:03:10"})
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "103.00", "volume": 1250, "LTT": "15:03:40"})
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "104.00", "volume": 1400, "LTT": "15:04:02"})
+
+    snapshot = engine.snapshot()["stocks"][0]
+    assert snapshot["percent_change"] == 4
+    assert snapshot["candle_start"].endswith("T15:03:00+05:30")
+    assert snapshot["candle_close"] == 103
+    assert snapshot["candle_volume"] == 250
+    assert snapshot["candle_turnover"] == 25750
