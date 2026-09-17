@@ -29,6 +29,7 @@ IST = ZoneInfo("Asia/Kolkata")
 SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
 SCRIP_MASTER_PATH = DATA_DIR / "api-scrip-master.csv"
 SCRIP_INDEX_PATH = DATA_DIR / "nse-equity-instruments.json"
+OPENING_CANDLE_PAIRS = (("09:15", "09:16"), ("09:14", "09:15"))
 
 
 def parse_symbols(raw: str) -> list[str]:
@@ -111,6 +112,14 @@ class Candle:
     def turnover(self) -> float:
         return self.volume * self.close
 
+    @property
+    def color(self) -> str:
+        if self.close > self.open:
+            return "green"
+        if self.close < self.open:
+            return "red"
+        return "doji"
+
     def update(self, price: float, volume_delta: int) -> None:
         self.high = max(self.high, price)
         self.low = min(self.low, price)
@@ -129,6 +138,8 @@ class StockState:
     current_candle: Candle | None = None
     completed_candle: Candle | None = None
     last_tick_time: datetime | None = None
+    possible_candidate: bool = False
+    candidate_reason: str | None = None
     status: str = "waiting"
     error: str | None = None
 
@@ -286,6 +297,7 @@ class ScannerEngine:
                     for state in states:
                         state.error = str(exc)
                         state.status = "rate limited"
+                    return cached
 
         for state in states:
             symbol = state.instrument.symbol
@@ -322,11 +334,115 @@ class ScannerEngine:
 
         if cached:
             self.store.update_previous_closes(cached)
+
+        if cached and not skip_historical_fallback:
+            candidate_count = self.evaluate_opening_candidates(client)
+        else:
+            candidate_count = 0
+
         with self._lock:
             self._status = f"Cached previous close for {len(cached)} stock(s)"
+            if cached:
+                self._status += f"; {candidate_count} possible candidate(s)"
             if errors:
                 self._status += f"; {len(errors)} error(s)"
         return cached
+
+    def evaluate_opening_candidates(self, client: Any | None = None) -> int:
+        client = client or self._client()
+        with self._lock:
+            states = list(self._states.values())
+
+        candidate_count = 0
+        for index, state in enumerate(states):
+            if index:
+                time.sleep(1.15)
+            symbol = state.instrument.symbol
+            try:
+                candles = self._fetch_opening_candles(client, state.instrument)
+                is_candidate, reason = self._evaluate_opening_candle_pairs(candles)
+                with self._lock:
+                    target = self._states.get(symbol)
+                    if target:
+                        target.possible_candidate = is_candidate
+                        target.candidate_reason = reason
+                if is_candidate:
+                    candidate_count += 1
+            except Exception as exc:
+                with self._lock:
+                    target = self._states.get(symbol)
+                    if target:
+                        target.possible_candidate = False
+                        target.candidate_reason = f"Opening candle check failed: {exc}"
+        return candidate_count
+
+    def _fetch_opening_candles(self, client: Any, instrument: Instrument) -> list[Candle]:
+        today = datetime.now(IST).date()
+        session_start = datetime.combine(today, dt_time(9, 14), tzinfo=IST)
+        session_end = datetime.combine(today, dt_time(9, 18), tzinfo=IST)
+        response = self._intraday_with_retry(
+            client,
+            instrument.security_id,
+            instrument.exchange_segment,
+            instrument.instrument_type,
+            session_start.strftime("%Y-%m-%d %H:%M:%S"),
+            session_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        return self._parse_intraday_candles(response)
+
+    def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
+        by_minute = {candle.start.strftime("%H:%M"): candle for candle in candles}
+        checked: list[str] = []
+        missing: list[str] = []
+
+        for first_label, second_label in OPENING_CANDLE_PAIRS:
+            first = by_minute.get(first_label)
+            second = by_minute.get(second_label)
+            pair_label = f"{first_label}/{second_label}"
+            if first is None or second is None:
+                missing.append(pair_label)
+                continue
+
+            first_color = first.color
+            second_color = second.color
+            detail = f"{pair_label}: {first_label} {first_color}, {second_label} {second_color}"
+            if self._is_opposite_green_red_pair(first_color, second_color):
+                return True, f"Matched {detail}"
+            checked.append(detail)
+
+        if checked:
+            return False, "; ".join(checked)
+        raise RuntimeError(f"Dhan did not return opening candle pairs: {', '.join(missing)}")
+
+    @staticmethod
+    def _is_opposite_green_red_pair(first_color: str, second_color: str) -> bool:
+        return {first_color, second_color} == {"green", "red"}
+
+    def _parse_intraday_candles(self, response: Any) -> list[Candle]:
+        data = _extract_data(response)
+        timestamps = data.get("timestamp") or []
+        opens = data.get("open") or []
+        highs = data.get("high") or []
+        lows = data.get("low") or []
+        closes = data.get("close") or []
+        volumes = data.get("volume") or []
+        candles: list[Candle] = []
+        for index, ts in enumerate(timestamps):
+            try:
+                candle_start = datetime.fromtimestamp(int(float(ts)), IST).replace(second=0, microsecond=0)
+                candles.append(
+                    Candle(
+                        start=candle_start,
+                        open=float(opens[index]),
+                        high=float(highs[index]),
+                        low=float(lows[index]),
+                        close=float(closes[index]),
+                        volume=int(float(volumes[index])),
+                    )
+                )
+            except (IndexError, TypeError, ValueError):
+                continue
+        return candles
 
     def _cache_from_ohlc_batch(self, client: Any, states: list[StockState]) -> dict[str, float]:
         if not states:
@@ -392,6 +508,20 @@ class ScannerEngine:
         if last_error:
             raise RuntimeError(last_error)
         return client.historical_daily_data(*args)
+
+    def _intraday_with_retry(self, client: Any, *args: Any) -> Any:
+        last_error: str | None = None
+        for attempt in range(3):
+            response = client.intraday_minute_data(*args, interval=1, oi=False)
+            if isinstance(response, dict) and response.get("status") == "failure":
+                last_error = _format_dhan_error(response.get("remarks"))
+                if "DH-904" in last_error or "Rate_Limit" in last_error:
+                    if attempt < 2:
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    raise RuntimeError(last_error)
+            return response
+        raise RuntimeError(last_error or "Dhan intraday request failed")
 
     def start(self) -> None:
         if MarketFeed is None or DhanContext is None:
@@ -479,25 +609,11 @@ class ScannerEngine:
             oi=False,
         )
         data = _extract_data(response)
-        timestamps = data.get("timestamp") or []
-        opens = data.get("open") or []
-        highs = data.get("high") or []
-        lows = data.get("low") or []
-        closes = data.get("close") or []
-        volumes = data.get("volume") or []
         repaired = 0
-        for index, ts in enumerate(timestamps):
-            candle_start = datetime.fromtimestamp(int(ts), IST).replace(second=0, microsecond=0)
+        for candle in self._parse_intraday_candles(data):
+            candle_start = candle.start
             if candle_start < start or candle_start > end:
                 continue
-            candle = Candle(
-                start=candle_start,
-                open=float(opens[index]),
-                high=float(highs[index]),
-                low=float(lows[index]),
-                close=float(closes[index]),
-                volume=int(float(volumes[index])),
-            )
             with self._lock:
                 state = self._states.get(instrument.symbol)
                 if state and (state.completed_candle is None or candle.start >= state.completed_candle.start):
@@ -640,6 +756,8 @@ class ScannerEngine:
             "candle_turnover": candle.turnover if candle else 0.0,
             "day_volume": state.day_volume,
             "last_tick_time": state.last_tick_time.isoformat(timespec="seconds") if state.last_tick_time else None,
+            "possible_candidate": state.possible_candidate,
+            "candidate_reason": state.candidate_reason,
             "status": state.status,
             "error": state.error,
         }

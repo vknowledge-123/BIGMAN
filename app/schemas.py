@@ -41,6 +41,8 @@ class StockRow(BaseModel):
     candle_turnover: float = 0.0
     day_volume: int | None = None
     last_tick_time: str | None = None
+    possible_candidate: bool = False
+    candidate_reason: str | None = None
     status: str = "waiting"
     error: str | None = None
 

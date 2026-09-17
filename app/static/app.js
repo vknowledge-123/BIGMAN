@@ -119,7 +119,7 @@ function renderState(state) {
   els.topChange.textContent = top && top.percent_change !== null ? `${fmtNumber(top.percent_change, 2)}%` : "--";
 
   if (!state.stocks.length) {
-    els.rows.innerHTML = `<tr><td colspan="9" class="empty">No stocks loaded</td></tr>`;
+    els.rows.innerHTML = `<tr><td colspan="10" class="empty">No stocks loaded</td></tr>`;
     return;
   }
 
@@ -127,6 +127,10 @@ function renderState(state) {
     const changeClass = row.percent_change >= 0 ? "positive" : "negative";
     const statusText = row.error || row.status || "waiting";
     const safeStatus = escapeHtml(statusText);
+    const candidateReason = escapeHtml(row.candidate_reason || "Opening candles not checked");
+    const candidateBadge = row.possible_candidate
+      ? `<span class="candidate-badge" title="${candidateReason}">Possible candidate</span>`
+      : `<span class="muted-small" title="${candidateReason}">--</span>`;
     return `
       <tr>
         <td>${index + 1}</td>
@@ -144,6 +148,7 @@ function renderState(state) {
         <td>${fmtInt(row.candle_volume)}</td>
         <td>${fmtCandle(row)}</td>
         <td>${fmtNumber(row.previous_close, 2)}</td>
+        <td>${candidateBadge}</td>
         <td><span class="pill" title="${safeStatus}">${safeStatus}</span></td>
       </tr>
     `;

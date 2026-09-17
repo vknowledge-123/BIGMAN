@@ -99,9 +99,13 @@ def stop_scan() -> MessageOut:
 def repair_missing() -> MessageOut:
     try:
         repaired = scanner.repair_missing_candles()
+        candidates = scanner.evaluate_opening_candidates()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return MessageOut(ok=True, message=f"Repaired {repaired} candle(s)")
+    return MessageOut(
+        ok=True,
+        message=f"Repaired {repaired} live candle(s); checked opening candle pairs, {candidates} possible candidate(s)",
+    )
 
 
 @app.get("/api/state", response_model=StateOut)

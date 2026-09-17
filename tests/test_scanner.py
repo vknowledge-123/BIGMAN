@@ -154,6 +154,89 @@ def test_cache_rate_limit_does_not_fan_out_to_historical_calls(tmp_path) -> None
     assert engine.snapshot()["stocks"][0]["status"] == "rate limited"
 
 
+def test_opening_candidate_badge_green_red(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
+    second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 105, 101, 102, 1200)
+    engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+
+    assert engine.evaluate_opening_candidates() == 1
+    row = engine.snapshot()["stocks"][0]
+    assert row["possible_candidate"] is True
+    assert row["candidate_reason"] == "Matched 09:15/09:16: 09:15 green, 09:16 red"
+
+
+def test_opening_candidate_badge_red_green(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
+    second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 102, 97, 101, 1200)
+    engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+
+    assert engine.evaluate_opening_candidates() == 1
+    assert engine.snapshot()["stocks"][0]["possible_candidate"] is True
+
+
+def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
+    second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 99, 94, 95, 1200)
+    engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+
+    assert engine.evaluate_opening_candidates() == 0
+    row = engine.snapshot()["stocks"][0]
+    assert row["possible_candidate"] is False
+    assert row["candidate_reason"] == "09:15/09:16: 09:15 red, 09:16 red"
+
+
+def test_opening_candidate_badge_requires_opposite_colors(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
+    second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 108, 103, 107, 1200)
+    engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+
+    assert engine.evaluate_opening_candidates() == 0
+    row = engine.snapshot()["stocks"][0]
+    assert row["possible_candidate"] is False
+    assert row["candidate_reason"] == "09:15/09:16: 09:15 green, 09:16 green"
+
+
+def test_opening_candidate_badge_tries_914_915_fallback_opposite_colors(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    first = Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1000)
+    second = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 104, 105, 101, 102, 1200)
+    engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+
+    assert engine.evaluate_opening_candidates() == 1
+    row = engine.snapshot()["stocks"][0]
+    assert row["possible_candidate"] is True
+    assert row["candidate_reason"] == "Matched 09:14/09:15: 09:14 green, 09:15 red"
+
+
 def test_quote_ticks_complete_previous_one_minute_candle(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.json")
     engine = ScannerEngine(store)

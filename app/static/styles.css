@@ -341,7 +341,9 @@ td:nth-child(2),
 th:nth-child(7),
 td:nth-child(7),
 th:nth-child(9),
-td:nth-child(9) {
+td:nth-child(9),
+th:nth-child(10),
+td:nth-child(10) {
   text-align: left;
 }
 
@@ -390,6 +392,26 @@ tbody tr:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.candidate-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid rgba(8, 127, 91, 0.22);
+  border-radius: 8px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.muted-small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .empty {
