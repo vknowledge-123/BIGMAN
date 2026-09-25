@@ -17,6 +17,7 @@ class AppConfig:
     access_token: str = ""
     symbols: list[str] = field(default_factory=list)
     previous_closes: dict[str, float] = field(default_factory=dict)
+    opening_volume_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class ConfigStore:
@@ -39,6 +40,11 @@ class ConfigStore:
                     for symbol, close in raw.get("previous_closes", {}).items()
                     if close is not None
                 },
+                opening_volume_cache={
+                    str(symbol).upper(): value
+                    for symbol, value in raw.get("opening_volume_cache", {}).items()
+                    if isinstance(value, dict)
+                },
             )
 
     def save(self, config: AppConfig) -> None:
@@ -48,6 +54,7 @@ class ConfigStore:
                 "access_token": config.access_token,
                 "symbols": config.symbols,
                 "previous_closes": config.previous_closes,
+                "opening_volume_cache": config.opening_volume_cache,
             }
             tmp_path = self.path.with_suffix(".tmp")
             tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -69,5 +76,11 @@ class ConfigStore:
     def update_previous_closes(self, previous_closes: dict[str, float]) -> AppConfig:
         config = self.load()
         config.previous_closes.update(previous_closes)
+        self.save(config)
+        return config
+
+    def update_opening_volume_cache(self, entries: dict[str, dict[str, Any]]) -> AppConfig:
+        config = self.load()
+        config.opening_volume_cache.update(entries)
         self.save(config)
         return config

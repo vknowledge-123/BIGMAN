@@ -11,8 +11,14 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Connects to Dhan Live Market Feed in Quote mode.
 - Builds 1-minute candles from live cumulative volume changes.
 - Shows latest completed candle turnover as `1m candle volume * candle close`.
-- Sorts rows by `% change` first, then `1m turnover`.
-- Marks `Possible candidate` when Dhan intraday opening candles are opposite colors: `green + red` or `red + green`. If Dhan labels the first market candle as `9:14`, it also tries the `9:14/9:15` pair.
+- Caches the first 1-minute candle volume from the latest three valid prior trading days and calculates their average.
+- Skips weekends, holidays, missing opening candles, and price-locked opening circuit sessions while finding those three samples.
+- Calculates `Volume SMA = today's first candle volume / cached 3-day average`.
+- Keeps only stocks with a `Volume SMA >= 4.00x` in the dashboard table.
+- Marks `Possible candidate` only when volume is at least `4.00x` and the two opening candles have opposite colors: `green + red` or `red + green`.
+- Pins possible candidates first, then sorts by `% change` and `1m turnover`.
+- Adds an `F&O` badge for symbols in the configured F&O universe.
+- If Dhan labels the first market candle as `9:14`, the scanner uses the `9:14/9:15` pair.
 - Provides a manual repair button that fetches missing live 1-minute candles and re-checks the 9:15/9:16 candidate candles.
 
 ## Install
@@ -57,14 +63,15 @@ http://127.0.0.1:8000
 
 1. Enter Dhan Client ID and Access Token, then click `Save`.
 2. Paste symbols and click `Save List`.
-3. Click `Cache Data` to fetch previous close.
-4. `Cache Data` also checks the official Dhan intraday opening candles for the candidate badge.
-5. Click `Start Live` to connect the WebSocket feed.
-6. Use `Repair + Check Open` if some 1-minute candles are missing due to feed interruption, or if you started after market open and want to re-check candidate badges.
+3. Click `Cache Close` to fetch previous close.
+4. Click `Cache Volume Average` to cache three valid prior opening volumes. You can run this before, during, or after market hours.
+5. Click `Start Live` to connect the WebSocket feed. At 9:17 IST the app automatically confirms today's opening candles from Dhan intraday data.
+6. Use `Repair + Check Open` if some 1-minute candles are missing due to feed interruption, or to manually refresh candidate checks.
 
 ## Notes
 
 - The app is configured for NSE equity symbols and Dhan `NSE_EQ` / `EQUITY`.
 - Dhan's WebSocket feed needs Live Market Feed/Data API access on your Dhan account.
+- Dhan access tokens expire. Save a fresh token if the dashboard reports `DH-901`.
 - Your access token is stored as plain local JSON in `data/config.json`; keep this folder private.
 - On the first live tick for a stock, volume delta is seeded from the current Dhan day-volume value, so turnover starts counting accurately after that tick instead of showing the full day volume as a fake 1-minute candle.

@@ -44,6 +44,7 @@ def get_config() -> ConfigOut:
         client_id=config.client_id,
         symbols_text="\n".join(config.symbols),
         cached_close_count=len(config.previous_closes),
+        cached_volume_count=len(config.opening_volume_cache),
     )
 
 
@@ -80,6 +81,18 @@ def cache_data() -> MessageOut:
     return MessageOut(ok=True, message=f"Cached previous close for {len(cached)} stock(s)")
 
 
+@app.post("/api/cache-volume", response_model=MessageOut)
+def cache_volume_average() -> MessageOut:
+    try:
+        cached = scanner.cache_opening_volume_averages()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return MessageOut(
+        ok=True,
+        message=f"Cached 3-day opening volume average for {len(cached)} stock(s)",
+    )
+
+
 @app.post("/api/start", response_model=MessageOut)
 def start_scan() -> MessageOut:
     try:
@@ -104,7 +117,10 @@ def repair_missing() -> MessageOut:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return MessageOut(
         ok=True,
-        message=f"Repaired {repaired} live candle(s); checked opening candle pairs, {candidates} possible candidate(s)",
+        message=(
+            f"Repaired {repaired} live candle(s); checked opening colors and 4x volume, "
+            f"{candidates} possible candidate(s)"
+        ),
     )
 
 

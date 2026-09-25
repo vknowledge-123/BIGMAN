@@ -313,7 +313,7 @@ button:disabled {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 1040px;
+  min-width: 1420px;
 }
 
 th,
@@ -338,12 +338,12 @@ th {
 
 th:nth-child(2),
 td:nth-child(2),
-th:nth-child(7),
-td:nth-child(7),
-th:nth-child(9),
-td:nth-child(9),
 th:nth-child(10),
-td:nth-child(10) {
+td:nth-child(10),
+th:nth-child(12),
+td:nth-child(12),
+th:nth-child(13),
+td:nth-child(13) {
   text-align: left;
 }
 
@@ -406,6 +406,31 @@ tbody tr:hover {
   font-size: 12px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.badge-stack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fno-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid rgba(178, 107, 0, 0.24);
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.multiplier {
+  color: var(--blue);
+  font-weight: 900;
 }
 
 .muted-small {

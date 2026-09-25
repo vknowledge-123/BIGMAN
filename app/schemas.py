@@ -22,6 +22,7 @@ class ConfigOut(BaseModel):
     client_id: str
     symbols_text: str
     cached_close_count: int
+    cached_volume_count: int
 
 
 class StockRow(BaseModel):
@@ -41,8 +42,14 @@ class StockRow(BaseModel):
     candle_turnover: float = 0.0
     day_volume: int | None = None
     last_tick_time: str | None = None
+    opening_volume_average: float | None = None
+    opening_volume_samples: list[dict] = Field(default_factory=list)
+    today_opening_volume: int | None = None
+    volume_multiplier: float | None = None
+    opening_colors_match: bool = False
     possible_candidate: bool = False
     candidate_reason: str | None = None
+    is_fno: bool = False
     status: str = "waiting"
     error: str | None = None
 

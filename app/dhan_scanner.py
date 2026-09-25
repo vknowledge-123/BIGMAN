@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from .fno_symbols import FNO_SYMBOLS
 from .storage import DATA_DIR, ConfigStore
 
 try:
@@ -29,7 +30,10 @@ IST = ZoneInfo("Asia/Kolkata")
 SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
 SCRIP_MASTER_PATH = DATA_DIR / "api-scrip-master.csv"
 SCRIP_INDEX_PATH = DATA_DIR / "nse-equity-instruments.json"
-OPENING_CANDLE_PAIRS = (("09:15", "09:16"), ("09:14", "09:15"))
+OPENING_CANDLE_PAIRS = (("09:14", "09:15"), ("09:15", "09:16"))
+VOLUME_SAMPLE_COUNT = 3
+VOLUME_MULTIPLIER_THRESHOLD = 4.0
+CIRCUIT_BANDS = (2.0, 5.0, 10.0, 20.0)
 
 
 def parse_symbols(raw: str) -> list[str]:
@@ -86,6 +90,14 @@ def _format_dhan_error(remarks: Any) -> str:
     return str(remarks or "Dhan API request failed")
 
 
+def _should_stop_api_batch(error: Exception | str) -> bool:
+    message = str(error)
+    return any(
+        marker in message
+        for marker in ("DH-901", "Invalid_Authentication", "DH-904", "Rate_Limit")
+    )
+
+
 @dataclass
 class Instrument:
     symbol: str
@@ -138,6 +150,11 @@ class StockState:
     current_candle: Candle | None = None
     completed_candle: Candle | None = None
     last_tick_time: datetime | None = None
+    opening_volume_average: float | None = None
+    opening_volume_samples: list[dict[str, Any]] = field(default_factory=list)
+    today_opening_volume: int | None = None
+    volume_multiplier: float | None = None
+    opening_colors_match: bool = False
     possible_candidate: bool = False
     candidate_reason: str | None = None
     status: str = "waiting"
@@ -226,6 +243,8 @@ class ScannerEngine:
         self._unresolved_symbols: list[str] = []
         self._feed: Any = None
         self._feed_thread: threading.Thread | None = None
+        self._candidate_thread: threading.Thread | None = None
+        self._candidate_stop = threading.Event()
         self._running = False
         self._connected = False
         self._status = "Idle"
@@ -254,6 +273,12 @@ class ScannerEngine:
                 symbol: StockState(
                     instrument=instrument,
                     previous_close=config.previous_closes.get(symbol),
+                    opening_volume_average=_float_or_none(
+                        config.opening_volume_cache.get(symbol, {}).get("average")
+                    ),
+                    opening_volume_samples=list(
+                        config.opening_volume_cache.get(symbol, {}).get("samples", [])
+                    ),
                 )
                 for symbol, instrument in resolved.items()
             }
@@ -289,11 +314,11 @@ class ScannerEngine:
             cached.update(self._cache_from_ohlc_batch(client, states))
         except Exception as exc:
             LOGGER.warning("Batch OHLC previous close cache failed: %s", exc)
-            skip_historical_fallback = "DH-904" in str(exc) or "Rate_Limit" in str(exc)
+            skip_historical_fallback = _should_stop_api_batch(exc)
             with self._lock:
                 self._status = f"Batch cache failed, trying historical fallback: {exc}"
                 if skip_historical_fallback:
-                    self._status = f"Dhan rate limit hit. Wait for cooldown, then click Cache Data again: {exc}"
+                    self._status = f"Dhan rejected the cache request: {exc}"
                     for state in states:
                         state.error = str(exc)
                         state.status = "rate limited"
@@ -335,18 +360,162 @@ class ScannerEngine:
         if cached:
             self.store.update_previous_closes(cached)
 
-        if cached and not skip_historical_fallback:
-            candidate_count = self.evaluate_opening_candidates(client)
-        else:
-            candidate_count = 0
-
         with self._lock:
             self._status = f"Cached previous close for {len(cached)} stock(s)"
-            if cached:
-                self._status += f"; {candidate_count} possible candidate(s)"
             if errors:
                 self._status += f"; {len(errors)} error(s)"
         return cached
+
+    def cache_opening_volume_averages(self) -> dict[str, float]:
+        client = self._client()
+        with self._lock:
+            states = list(self._states.values())
+        if not states:
+            raise RuntimeError("Add stocks first")
+
+        cached: dict[str, float] = {}
+        cache_entries: dict[str, dict[str, Any]] = {}
+        errors: dict[str, str] = {}
+        fatal_error: str | None = None
+        for index, state in enumerate(states):
+            if index:
+                time.sleep(1.15)
+            symbol = state.instrument.symbol
+            try:
+                samples, today_candles = self._fetch_opening_volume_history(client, state.instrument)
+                average = sum(sample["volume"] for sample in samples) / len(samples)
+                entry = {
+                    "average": average,
+                    "samples": samples,
+                    "cached_at": datetime.now(IST).isoformat(timespec="seconds"),
+                }
+                cached[symbol] = average
+                cache_entries[symbol] = entry
+                with self._lock:
+                    target = self._states.get(symbol)
+                    if target:
+                        target.opening_volume_average = average
+                        target.opening_volume_samples = samples
+                        target.error = None
+                        target.status = "volume cached"
+                if self._select_opening_pair(today_candles) is not None:
+                    self._apply_opening_candidate(symbol, today_candles)
+            except Exception as exc:
+                errors[symbol] = str(exc)
+                with self._lock:
+                    target = self._states.get(symbol)
+                    if target:
+                        target.error = f"Volume cache failed: {exc}"
+                        target.status = "volume cache error"
+                if _should_stop_api_batch(exc):
+                    fatal_error = str(exc)
+                    for remaining in states[index + 1 :]:
+                        remaining_symbol = remaining.instrument.symbol
+                        errors[remaining_symbol] = f"Skipped after Dhan error: {exc}"
+                        with self._lock:
+                            target = self._states.get(remaining_symbol)
+                            if target:
+                                target.error = errors[remaining_symbol]
+                                target.status = "volume cache skipped"
+                    break
+
+        if cache_entries:
+            self.store.update_opening_volume_cache(cache_entries)
+
+        with self._lock:
+            self._status = f"Cached 3-day opening volume average for {len(cached)} stock(s)"
+            if errors:
+                self._status += f"; {len(errors)} error(s)"
+        if not cached and fatal_error:
+            raise RuntimeError(fatal_error)
+        return cached
+
+    def _fetch_opening_volume_history(
+        self,
+        client: Any,
+        instrument: Instrument,
+    ) -> tuple[list[dict[str, Any]], list[Candle]]:
+        now = datetime.now(IST)
+        all_candles: dict[datetime, Candle] = {}
+        cursor_end = now
+
+        for _ in range(6):
+            window_start = cursor_end - timedelta(days=9)
+            response = self._intraday_with_retry(
+                client,
+                instrument.security_id,
+                instrument.exchange_segment,
+                instrument.instrument_type,
+                window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                cursor_end.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+            for candle in self._parse_intraday_candles(response):
+                all_candles[candle.start] = candle
+
+            samples = self._select_historical_opening_samples(
+                list(all_candles.values()), now.date(), VOLUME_SAMPLE_COUNT
+            )
+            if len(samples) == VOLUME_SAMPLE_COUNT:
+                today_candles = [
+                    candle for candle in all_candles.values() if candle.start.date() == now.date()
+                ]
+                return samples, today_candles
+            cursor_end = window_start
+            time.sleep(1.15)
+
+        raise RuntimeError(
+            f"Only {len(samples)} valid prior opening candle(s) found; 3 are required"
+        )
+
+    def _select_historical_opening_samples(
+        self,
+        candles: list[Candle],
+        before_date: date,
+        count: int,
+    ) -> list[dict[str, Any]]:
+        by_date: dict[date, list[Candle]] = {}
+        for candle in sorted(candles, key=lambda item: item.start):
+            if candle.start.date() < before_date:
+                by_date.setdefault(candle.start.date(), []).append(candle)
+
+        trading_dates = sorted(by_date)
+        samples: list[dict[str, Any]] = []
+        for trading_date in reversed(trading_dates):
+            opening = self._first_opening_candle(by_date[trading_date])
+            if opening is None or opening.volume <= 0:
+                continue
+
+            previous_dates = [item for item in trading_dates if item < trading_date]
+            previous_close = by_date[previous_dates[-1]][-1].close if previous_dates else None
+            if self._looks_like_opening_circuit(opening, previous_close):
+                continue
+
+            samples.append(
+                {
+                    "date": trading_date.isoformat(),
+                    "candle_start": opening.start.strftime("%H:%M"),
+                    "volume": opening.volume,
+                }
+            )
+            if len(samples) == count:
+                break
+        return samples
+
+    @staticmethod
+    def _first_opening_candle(candles: list[Candle]) -> Candle | None:
+        by_minute = {candle.start.strftime("%H:%M"): candle for candle in candles}
+        return by_minute.get("09:14") or by_minute.get("09:15")
+
+    @staticmethod
+    def _looks_like_opening_circuit(candle: Candle, previous_close: float | None) -> bool:
+        if not previous_close:
+            return False
+        tolerance = max(abs(candle.open), 1.0) * 0.000001
+        price_locked = candle.high - candle.low <= tolerance
+        if not price_locked:
+            return False
+        gap_percent = abs((candle.open - previous_close) / previous_close * 100)
+        return any(abs(gap_percent - band) <= 0.35 for band in CIRCUIT_BANDS)
 
     def evaluate_opening_candidates(self, client: Any | None = None) -> int:
         client = client or self._client()
@@ -354,27 +523,65 @@ class ScannerEngine:
             states = list(self._states.values())
 
         candidate_count = 0
+        checked_count = 0
+        first_error: str | None = None
         for index, state in enumerate(states):
             if index:
                 time.sleep(1.15)
             symbol = state.instrument.symbol
             try:
                 candles = self._fetch_opening_candles(client, state.instrument)
-                is_candidate, reason = self._evaluate_opening_candle_pairs(candles)
-                with self._lock:
-                    target = self._states.get(symbol)
-                    if target:
-                        target.possible_candidate = is_candidate
-                        target.candidate_reason = reason
+                is_candidate = self._apply_opening_candidate(symbol, candles)
+                checked_count += 1
                 if is_candidate:
                     candidate_count += 1
             except Exception as exc:
+                first_error = first_error or str(exc)
                 with self._lock:
                     target = self._states.get(symbol)
                     if target:
                         target.possible_candidate = False
                         target.candidate_reason = f"Opening candle check failed: {exc}"
+                if _should_stop_api_batch(exc):
+                    for remaining in states[index + 1 :]:
+                        with self._lock:
+                            target = self._states.get(remaining.instrument.symbol)
+                            if target:
+                                target.possible_candidate = False
+                                target.candidate_reason = f"Opening candle check skipped: {exc}"
+                    break
+        if states and checked_count == 0 and first_error:
+            raise RuntimeError(first_error)
         return candidate_count
+
+    def _apply_opening_candidate(self, symbol: str, candles: list[Candle]) -> bool:
+        colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
+        selected_pair = self._select_opening_pair(candles)
+        if selected_pair is None:
+            raise RuntimeError("Dhan did not return a complete opening candle pair")
+        _, first, _, _ = selected_pair
+
+        with self._lock:
+            target = self._states.get(symbol)
+            if target is None:
+                return False
+            target.today_opening_volume = first.volume
+            average = target.opening_volume_average
+            target.volume_multiplier = first.volume / average if average and average > 0 else None
+            target.opening_colors_match = colors_match
+            meets_volume = (
+                target.volume_multiplier is not None
+                and target.volume_multiplier >= VOLUME_MULTIPLIER_THRESHOLD
+            )
+            target.possible_candidate = colors_match and meets_volume
+            if target.volume_multiplier is None:
+                target.candidate_reason = f"{color_reason}; cache volume average first"
+            else:
+                target.candidate_reason = (
+                    f"{color_reason}; opening volume {first.volume:,} / average {average:,.0f} "
+                    f"= {target.volume_multiplier:.2f}x"
+                )
+            return target.possible_candidate
 
     def _fetch_opening_candles(self, client: Any, instrument: Instrument) -> list[Candle]:
         today = datetime.now(IST).date()
@@ -391,28 +598,31 @@ class ScannerEngine:
         return self._parse_intraday_candles(response)
 
     def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
-        by_minute = {candle.start.strftime("%H:%M"): candle for candle in candles}
-        checked: list[str] = []
-        missing: list[str] = []
+        selected = self._select_opening_pair(candles)
+        if selected is None:
+            labels = ", ".join(f"{first}/{second}" for first, second in OPENING_CANDLE_PAIRS)
+            raise RuntimeError(f"Dhan did not return opening candle pairs: {labels}")
 
+        first_label, first, second_label, second = selected
+        detail = (
+            f"{first_label}/{second_label}: {first_label} {first.color}, "
+            f"{second_label} {second.color}"
+        )
+        if self._is_opposite_green_red_pair(first.color, second.color):
+            return True, f"Matched {detail}"
+        return False, detail
+
+    @staticmethod
+    def _select_opening_pair(
+        candles: list[Candle],
+    ) -> tuple[str, Candle, str, Candle] | None:
+        by_minute = {candle.start.strftime("%H:%M"): candle for candle in candles}
         for first_label, second_label in OPENING_CANDLE_PAIRS:
             first = by_minute.get(first_label)
             second = by_minute.get(second_label)
-            pair_label = f"{first_label}/{second_label}"
-            if first is None or second is None:
-                missing.append(pair_label)
-                continue
-
-            first_color = first.color
-            second_color = second.color
-            detail = f"{pair_label}: {first_label} {first_color}, {second_label} {second_color}"
-            if self._is_opposite_green_red_pair(first_color, second_color):
-                return True, f"Matched {detail}"
-            checked.append(detail)
-
-        if checked:
-            return False, "; ".join(checked)
-        raise RuntimeError(f"Dhan did not return opening candle pairs: {', '.join(missing)}")
+            if first is not None and second is not None:
+                return first_label, first, second_label, second
+        return None
 
     @staticmethod
     def _is_opposite_green_red_pair(first_color: str, second_color: str) -> bool:
@@ -555,14 +765,24 @@ class ScannerEngine:
             on_error=self._on_error,
         )
         self._feed_thread = self._feed.start()
+        self._candidate_stop = threading.Event()
+        self._candidate_thread = threading.Thread(
+            target=self._refresh_opening_candidates_when_ready,
+            args=(self._candidate_stop,),
+            name="opening-candidate-refresh",
+            daemon=True,
+        )
+        self._candidate_thread.start()
 
     def stop(self) -> None:
         feed = self._feed
+        self._candidate_stop.set()
         with self._lock:
             self._running = False
             self._connected = False
             self._feed = None
             self._feed_thread = None
+            self._candidate_thread = None
             if self._status != "Idle":
                 self._status = "Stopped"
         if feed is not None:
@@ -570,6 +790,26 @@ class ScannerEngine:
                 feed.close_connection()
             except Exception as exc:
                 LOGGER.warning("Error closing Dhan feed: %s", exc)
+
+    def _refresh_opening_candidates_when_ready(self, stop_event: threading.Event) -> None:
+        now = datetime.now(IST)
+        ready_at = datetime.combine(now.date(), dt_time(9, 17), tzinfo=IST)
+        wait_seconds = max((ready_at - now).total_seconds(), 0)
+        if stop_event.wait(wait_seconds):
+            return
+        with self._lock:
+            already_checked = bool(self._states) and all(
+                state.today_opening_volume is not None for state in self._states.values()
+            )
+        if already_checked:
+            return
+        try:
+            count = self.evaluate_opening_candidates()
+            with self._lock:
+                if self._running:
+                    self._status = f"Live feed connected; {count} possible candidate(s)"
+        except Exception as exc:
+            LOGGER.warning("Automatic opening candidate refresh failed: %s", exc)
 
     def repair_missing_candles(self) -> int:
         client = self._client()
@@ -723,6 +963,7 @@ class ScannerEngine:
             rows = [self._row(state) for state in self._states.values()]
             rows.sort(
                 key=lambda row: (
+                    row["possible_candidate"],
                     row["percent_change"] if row["percent_change"] is not None else -999999,
                     row["candle_turnover"],
                 ),
@@ -756,8 +997,14 @@ class ScannerEngine:
             "candle_turnover": candle.turnover if candle else 0.0,
             "day_volume": state.day_volume,
             "last_tick_time": state.last_tick_time.isoformat(timespec="seconds") if state.last_tick_time else None,
+            "opening_volume_average": state.opening_volume_average,
+            "opening_volume_samples": state.opening_volume_samples,
+            "today_opening_volume": state.today_opening_volume,
+            "volume_multiplier": state.volume_multiplier,
+            "opening_colors_match": state.opening_colors_match,
             "possible_candidate": state.possible_candidate,
             "candidate_reason": state.candidate_reason,
+            "is_fno": state.instrument.symbol in FNO_SYMBOLS,
             "status": state.status,
             "error": state.error,
         }

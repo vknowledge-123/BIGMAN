@@ -44,4 +44,14 @@ def test_repair_endpoint_checks_opening_candidates(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert calls == {"repair": 1, "candidates": 1}
-    assert "checked opening candle pairs" in response.json()["message"]
+    assert "checked opening colors and 4x volume" in response.json()["message"]
+
+
+def test_cache_volume_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(scanner, "cache_opening_volume_averages", lambda: {"AAA": 1250.0})
+
+    with TestClient(app) as client:
+        response = client.post("/api/cache-volume")
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Cached 3-day opening volume average for 1 stock(s)"

@@ -64,7 +64,11 @@ OIL</textarea>
             </button>
             <button id="cacheButton" class="warning" type="button">
               <i data-lucide="database"></i>
-              Cache Data
+              Cache Close
+            </button>
+            <button id="volumeCacheButton" class="secondary" type="button">
+              <i data-lucide="chart-no-axes-combined"></i>
+              Cache Volume Average
             </button>
           </div>
         </form>
@@ -76,11 +80,11 @@ OIL</textarea>
           </div>
           <div class="metric-grid">
             <div>
-              <span>Stocks</span>
+              <span>4x Stocks</span>
               <strong id="stockCount">0</strong>
             </div>
             <div>
-              <span>Cached</span>
+              <span>Vol Cached</span>
               <strong id="cachedCount">0</strong>
             </div>
             <div>
@@ -122,6 +126,9 @@ OIL</textarea>
               <th>Symbol</th>
               <th>LTP</th>
               <th>% Change</th>
+              <th>Open Volume</th>
+              <th>3D Avg</th>
+              <th>Vol SMA</th>
               <th>1m Turnover</th>
               <th>1m Volume</th>
               <th>Candle</th>
@@ -132,7 +139,7 @@ OIL</textarea>
           </thead>
           <tbody id="stockRows">
             <tr>
-              <td colspan="10" class="empty">No stocks loaded</td>
+              <td colspan="13" class="empty">No stocks at 4x opening volume yet</td>
             </tr>
           </tbody>
         </table>

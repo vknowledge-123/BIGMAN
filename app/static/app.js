@@ -7,6 +7,7 @@ const els = {
   accessToken: qs("#accessToken"),
   symbolsText: qs("#symbolsText"),
   cacheButton: qs("#cacheButton"),
+  volumeCacheButton: qs("#volumeCacheButton"),
   startButton: qs("#startButton"),
   stopButton: qs("#stopButton"),
   repairButton: qs("#repairButton"),
@@ -110,20 +111,24 @@ function renderState(state) {
   els.connectionBadge.textContent = state.connected ? "Live Connected" : state.running ? "Connecting" : "Idle";
   els.connectionBadge.className = `badge ${state.connected ? "live" : state.status.toLowerCase().includes("error") ? "error" : "neutral"}`;
   els.updatedAt.textContent = `Updated ${fmtTime(state.updated_at)}`;
-  els.stockCount.textContent = state.stocks.length;
-  els.cachedCount.textContent = state.stocks.filter((row) => row.previous_close).length;
+  const visibleStocks = state.stocks.filter((row) => Number(row.volume_multiplier) >= 4);
+  els.stockCount.textContent = `${visibleStocks.length}/${state.stocks.length}`;
+  els.cachedCount.textContent = state.stocks.filter((row) => row.opening_volume_average).length;
   els.unresolved.textContent = state.unresolved_symbols.length ? `Unresolved: ${state.unresolved_symbols.join(", ")}` : "";
 
-  const top = state.stocks[0];
+  const top = visibleStocks[0];
   els.topTurnover.textContent = top ? fmtTurnover(top.candle_turnover) : "--";
   els.topChange.textContent = top && top.percent_change !== null ? `${fmtNumber(top.percent_change, 2)}%` : "--";
 
-  if (!state.stocks.length) {
-    els.rows.innerHTML = `<tr><td colspan="10" class="empty">No stocks loaded</td></tr>`;
+  if (!visibleStocks.length) {
+    const message = state.stocks.length
+      ? "No stocks at 4x opening volume yet"
+      : "No stocks loaded";
+    els.rows.innerHTML = `<tr><td colspan="13" class="empty">${message}</td></tr>`;
     return;
   }
 
-  els.rows.innerHTML = state.stocks.map((row, index) => {
+  els.rows.innerHTML = visibleStocks.map((row, index) => {
     const changeClass = row.percent_change >= 0 ? "positive" : "negative";
     const statusText = row.error || row.status || "waiting";
     const safeStatus = escapeHtml(statusText);
@@ -131,6 +136,10 @@ function renderState(state) {
     const candidateBadge = row.possible_candidate
       ? `<span class="candidate-badge" title="${candidateReason}">Possible candidate</span>`
       : `<span class="muted-small" title="${candidateReason}">--</span>`;
+    const fnoBadge = row.is_fno ? `<span class="fno-badge">F&amp;O</span>` : "";
+    const samples = (row.opening_volume_samples || [])
+      .map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`)
+      .join(" | ");
     return `
       <tr>
         <td>${index + 1}</td>
@@ -144,11 +153,14 @@ function renderState(state) {
         <td class="${row.percent_change === null ? "" : changeClass}">
           ${row.percent_change === null ? "--" : `${fmtNumber(row.percent_change, 2)}%`}
         </td>
+        <td>${fmtInt(row.today_opening_volume)}</td>
+        <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
+        <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
         <td><strong>${fmtTurnover(row.candle_turnover)}</strong></td>
         <td>${fmtInt(row.candle_volume)}</td>
         <td>${fmtCandle(row)}</td>
         <td>${fmtNumber(row.previous_close, 2)}</td>
-        <td>${candidateBadge}</td>
+        <td><div class="badge-stack">${candidateBadge}${fnoBadge}</div></td>
         <td><span class="pill" title="${safeStatus}">${safeStatus}</span></td>
       </tr>
     `;
@@ -159,7 +171,7 @@ async function refreshConfig() {
   const config = await api("/api/config");
   els.clientId.value = config.client_id || "";
   if (config.symbols_text) els.symbolsText.value = config.symbols_text;
-  els.cachedCount.textContent = config.cached_close_count;
+  els.cachedCount.textContent = config.cached_volume_count;
 }
 
 async function refreshState() {
@@ -188,6 +200,10 @@ els.symbolsForm.addEventListener("submit", (event) => {
 
 els.cacheButton.addEventListener("click", () => {
   runAction(els.cacheButton, () => api("/api/cache", { method: "POST" }));
+});
+
+els.volumeCacheButton.addEventListener("click", () => {
+  runAction(els.volumeCacheButton, () => api("/api/cache-volume", { method: "POST" }));
 });
 
 els.startButton.addEventListener("click", () => {
