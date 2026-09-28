@@ -8,7 +8,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .dhan_scanner import ScannerEngine, parse_symbols
-from .schemas import ConfigOut, CredentialsIn, MessageOut, StateOut, SymbolsIn
+from .schemas import (
+    BacktestIn,
+    BacktestOut,
+    ConfigOut,
+    CredentialsIn,
+    MessageOut,
+    StateOut,
+    SymbolsIn,
+)
 from .storage import ConfigStore
 
 
@@ -91,6 +99,16 @@ def cache_volume_average() -> MessageOut:
         ok=True,
         message=f"Cached 3-day opening volume average for {len(cached)} stock(s)",
     )
+
+
+@app.post("/api/backtest", response_model=BacktestOut)
+def run_backtest(payload: BacktestIn) -> dict:
+    try:
+        return scanner.backtest_date(payload.target_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/api/start", response_model=MessageOut)

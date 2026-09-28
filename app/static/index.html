@@ -118,31 +118,88 @@ OIL</textarea>
         <div id="unresolved" class="unresolved"></div>
       </section>
 
-      <section class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Symbol</th>
-              <th>LTP</th>
-              <th>% Change</th>
-              <th>Open Volume</th>
-              <th>3D Avg</th>
-              <th>Vol SMA</th>
-              <th>1m Turnover</th>
-              <th>1m Volume</th>
-              <th>Candle</th>
-              <th>Prev Close</th>
-              <th>Candidate</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody id="stockRows">
-            <tr>
-              <td colspan="13" class="empty">No stocks at 4x opening volume yet</td>
-            </tr>
-          </tbody>
-        </table>
+      <nav class="view-tabs" aria-label="Scanner views">
+        <button id="liveTab" class="view-tab active" type="button" aria-selected="true">
+          <i data-lucide="radio"></i>
+          Live Scanner
+        </button>
+        <button id="backtestTab" class="view-tab" type="button" aria-selected="false">
+          <i data-lucide="history"></i>
+          Backtest
+        </button>
+      </nav>
+
+      <section id="liveView" class="view-pane">
+        <div class="table-wrap">
+          <table class="live-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Symbol</th>
+                <th>LTP</th>
+                <th>% Change</th>
+                <th>Open Pair</th>
+                <th>Open Volume</th>
+                <th>3D Avg</th>
+                <th>Vol SMA</th>
+                <th>1st Turnover</th>
+                <th>1m Turnover</th>
+                <th>1m Volume</th>
+                <th>Candle</th>
+                <th>Prev Close</th>
+                <th>Candidate</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="stockRows">
+              <tr>
+                <td colspan="15" class="empty">No stocks at 4x opening volume yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="backtestView" class="view-pane" hidden>
+        <div class="backtest-toolbar">
+          <label class="date-field">
+            Trading date
+            <input id="backtestDate" type="date" required />
+          </label>
+          <button id="backtestButton" class="primary" type="button">
+            <i data-lucide="flask-conical"></i>
+            Run Backtest
+          </button>
+          <div class="backtest-metrics" aria-label="Backtest summary">
+            <span>Tested <strong id="backtestTested">0</strong></span>
+            <span>4x Stocks <strong id="backtestFourX">0</strong></span>
+            <span>Candidates <strong id="backtestCandidates">0</strong></span>
+            <span>Errors <strong id="backtestErrors">0</strong></span>
+          </div>
+        </div>
+        <div id="backtestMessage" class="message backtest-message">Select a trading date</div>
+        <div class="table-wrap">
+          <table class="backtest-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Symbol</th>
+                <th>First Candle</th>
+                <th>Second Candle</th>
+                <th>Open Volume</th>
+                <th>3D Avg</th>
+                <th>Vol SMA</th>
+                <th>Candidate</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="backtestRows">
+              <tr>
+                <td colspan="9" class="empty">No backtest run yet</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   </body>

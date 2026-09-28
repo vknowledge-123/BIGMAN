@@ -20,6 +20,18 @@ const els = {
   cachedCount: qs("#cachedCount"),
   topTurnover: qs("#topTurnover"),
   topChange: qs("#topChange"),
+  liveTab: qs("#liveTab"),
+  backtestTab: qs("#backtestTab"),
+  liveView: qs("#liveView"),
+  backtestView: qs("#backtestView"),
+  backtestDate: qs("#backtestDate"),
+  backtestButton: qs("#backtestButton"),
+  backtestMessage: qs("#backtestMessage"),
+  backtestRows: qs("#backtestRows"),
+  backtestTested: qs("#backtestTested"),
+  backtestFourX: qs("#backtestFourX"),
+  backtestCandidates: qs("#backtestCandidates"),
+  backtestErrors: qs("#backtestErrors"),
 };
 
 function fmtNumber(value, digits = 2) {
@@ -70,6 +82,55 @@ function fmtCandle(row) {
   const start = fmtTime(row.candle_start).slice(0, 5);
   const end = fmtTime(row.candle_end).slice(0, 5);
   return `${start} - ${end}`;
+}
+
+function fmtDateInput(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function fmtBacktestCandle(start, color) {
+  if (!start || !color) return `<span class="muted-small">--</span>`;
+  const safeColor = ["green", "red", "doji"].includes(color) ? color : "doji";
+  return `<span class="candle-color ${safeColor}">${fmtTime(start).slice(0, 5)} ${escapeHtml(color)}</span>`;
+}
+
+function fmtOpeningPair(row) {
+  const colors = [row.first_candle_color, row.second_candle_color];
+  if (colors.every((color) => !color)) return `<span class="muted-small">--</span>`;
+  return `<div class="opening-pair">${colors.map((color, index) => {
+    if (!color) return `<span class="candle-color doji">${index + 1}: waiting</span>`;
+    const safeColor = ["green", "red", "doji"].includes(color) ? color : "doji";
+    return `<span class="candle-color ${safeColor}">${index + 1}: ${escapeHtml(color)}</span>`;
+  }).join("")}</div>`;
+}
+
+function fmtOpeningTimeline(row) {
+  const candles = (row.opening_candles || []).slice(0, 10);
+  const slots = Array(10).fill(null);
+  if (candles.length) {
+    const firstStart = new Date(candles[0].start).getTime();
+    candles.forEach((candle) => {
+      const slot = Math.round((new Date(candle.start).getTime() - firstStart) / 60000);
+      if (slot >= 0 && slot < slots.length) slots[slot] = candle;
+    });
+  }
+  return `<div class="opening-timeline">${slots.map((candle, index) => {
+    if (!candle) {
+      return `<div class="opening-candle waiting"><span>#${index + 1}</span><strong>Waiting</strong></div>`;
+    }
+    const safeColor = ["green", "red", "doji"].includes(candle.color) ? candle.color : "doji";
+    return `
+      <div class="opening-candle ${safeColor}">
+        <div><span>${fmtTime(candle.start).slice(0, 5)}</span><span>${escapeHtml(candle.color)}</span></div>
+        <strong>${fmtTurnover(candle.turnover)}</strong>
+        <small>Vol ${fmtInt(candle.volume)}</small>
+        <small>Close ${fmtNumber(candle.close, 2)}</small>
+      </div>
+    `;
+  }).join("")}</div>`;
 }
 
 function setMessage(text, isError = false) {
@@ -124,7 +185,7 @@ function renderState(state) {
     const message = state.stocks.length
       ? "No stocks at 4x opening volume yet"
       : "No stocks loaded";
-    els.rows.innerHTML = `<tr><td colspan="13" class="empty">${message}</td></tr>`;
+    els.rows.innerHTML = `<tr><td colspan="15" class="empty">${message}</td></tr>`;
     return;
   }
 
@@ -141,7 +202,7 @@ function renderState(state) {
       .map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`)
       .join(" | ");
     return `
-      <tr>
+      <tr class="${row.possible_candidate ? "candidate-row" : ""}">
         <td>${index + 1}</td>
         <td>
           <div class="symbol">
@@ -153,9 +214,11 @@ function renderState(state) {
         <td class="${row.percent_change === null ? "" : changeClass}">
           ${row.percent_change === null ? "--" : `${fmtNumber(row.percent_change, 2)}%`}
         </td>
+        <td>${fmtOpeningPair(row)}</td>
         <td>${fmtInt(row.today_opening_volume)}</td>
         <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
         <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
+        <td><strong>${fmtTurnover(row.first_candle_turnover)}</strong></td>
         <td><strong>${fmtTurnover(row.candle_turnover)}</strong></td>
         <td>${fmtInt(row.candle_volume)}</td>
         <td>${fmtCandle(row)}</td>
@@ -163,8 +226,97 @@ function renderState(state) {
         <td><div class="badge-stack">${candidateBadge}${fnoBadge}</div></td>
         <td><span class="pill" title="${safeStatus}">${safeStatus}</span></td>
       </tr>
+      <tr class="opening-detail-row">
+        <td colspan="15">
+          <div class="opening-detail-head">
+            <span>Opening 10 candles</span>
+            <span>${(row.opening_candles || []).length}/10 completed</span>
+          </div>
+          ${fmtOpeningTimeline(row)}
+        </td>
+      </tr>
     `;
   }).join("");
+}
+
+function setActiveView(view) {
+  const showBacktest = view === "backtest";
+  els.liveView.hidden = showBacktest;
+  els.backtestView.hidden = !showBacktest;
+  els.liveTab.classList.toggle("active", !showBacktest);
+  els.backtestTab.classList.toggle("active", showBacktest);
+  els.liveTab.setAttribute("aria-selected", String(!showBacktest));
+  els.backtestTab.setAttribute("aria-selected", String(showBacktest));
+  window.history.replaceState(null, "", showBacktest ? "#backtest" : "#live");
+}
+
+function renderBacktest(result) {
+  els.backtestTested.textContent = result.tested_count;
+  els.backtestFourX.textContent = result.four_x_count;
+  els.backtestCandidates.textContent = result.candidate_count;
+  els.backtestErrors.textContent = result.error_count;
+  els.backtestMessage.style.color = "";
+  els.backtestMessage.textContent = `Backtest ${result.target_date}: ${result.candidate_count} possible candidate(s)`;
+  const visibleStocks = result.stocks.filter((row) => Number(row.volume_multiplier) >= 4);
+
+  if (!visibleStocks.length) {
+    const message = result.stocks.length
+      ? "No stocks at 4x opening volume on this date"
+      : "No stocks loaded";
+    els.backtestRows.innerHTML = `<tr><td colspan="9" class="empty">${message}</td></tr>`;
+    return;
+  }
+
+  els.backtestRows.innerHTML = visibleStocks.map((row, index) => {
+    const reason = escapeHtml(row.candidate_reason || row.error || "No candidate setup");
+    const candidateBadge = row.possible_candidate
+      ? `<span class="candidate-badge" title="${reason}">Possible candidate</span>`
+      : `<span class="muted-small" title="${reason}">--</span>`;
+    const fnoBadge = row.is_fno ? `<span class="fno-badge">F&amp;O</span>` : "";
+    const samples = (row.opening_volume_samples || [])
+      .map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`)
+      .join(" | ");
+    const status = escapeHtml(row.error || row.status || "checked");
+    return `
+      <tr class="${row.possible_candidate ? "candidate-row" : ""}">
+        <td>${index + 1}</td>
+        <td>
+          <div class="symbol">
+            <strong>${escapeHtml(row.symbol)}</strong>
+            <span>${escapeHtml(row.name || row.security_id || "")}</span>
+          </div>
+        </td>
+        <td>${fmtBacktestCandle(row.first_candle_start, row.first_candle_color)}</td>
+        <td>${fmtBacktestCandle(row.second_candle_start, row.second_candle_color)}</td>
+        <td>${fmtInt(row.first_candle_volume)}</td>
+        <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
+        <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
+        <td><div class="badge-stack">${candidateBadge}${fnoBadge}</div></td>
+        <td><span class="pill" title="${status}">${status}</span></td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function runBacktest() {
+  if (!els.backtestDate.value) {
+    els.backtestMessage.textContent = "Select a trading date";
+    return;
+  }
+  setBusy(els.backtestButton, true);
+  els.backtestMessage.textContent = `Running ${els.backtestDate.value}...`;
+  try {
+    const result = await api("/api/backtest", {
+      method: "POST",
+      body: JSON.stringify({ target_date: els.backtestDate.value }),
+    });
+    renderBacktest(result);
+  } catch (error) {
+    els.backtestMessage.textContent = error.message;
+    els.backtestMessage.style.color = "#c92a2a";
+  } finally {
+    setBusy(els.backtestButton, false);
+  }
 }
 
 async function refreshConfig() {
@@ -218,8 +370,21 @@ els.repairButton.addEventListener("click", () => {
   runAction(els.repairButton, () => api("/api/repair", { method: "POST" }));
 });
 
+els.liveTab.addEventListener("click", () => setActiveView("live"));
+els.backtestTab.addEventListener("click", () => setActiveView("backtest"));
+els.backtestButton.addEventListener("click", runBacktest);
+
 window.addEventListener("load", async () => {
   if (window.lucide) window.lucide.createIcons();
+  const today = new Date();
+  const earliest = new Date(today);
+  earliest.setDate(earliest.getDate() - 60);
+  const defaultDate = new Date(today);
+  defaultDate.setDate(defaultDate.getDate() - 1);
+  els.backtestDate.max = fmtDateInput(today);
+  els.backtestDate.min = fmtDateInput(earliest);
+  els.backtestDate.value = fmtDateInput(defaultDate);
+  setActiveView(window.location.hash === "#backtest" ? "backtest" : "live");
   try {
     await refreshConfig();
     await refreshState();

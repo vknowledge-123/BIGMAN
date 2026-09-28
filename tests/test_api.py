@@ -55,3 +55,21 @@ def test_cache_volume_endpoint(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["message"] == "Cached 3-day opening volume average for 1 stock(s)"
+
+
+def test_backtest_endpoint(monkeypatch) -> None:
+    result = {
+        "target_date": "2026-08-26",
+        "stocks": [],
+        "tested_count": 0,
+        "four_x_count": 0,
+        "candidate_count": 0,
+        "error_count": 0,
+    }
+    monkeypatch.setattr(scanner, "backtest_date", lambda _target_date: result)
+
+    with TestClient(app) as client:
+        response = client.post("/api/backtest", json={"target_date": "2026-08-26"})
+
+    assert response.status_code == 200
+    assert response.json() == result

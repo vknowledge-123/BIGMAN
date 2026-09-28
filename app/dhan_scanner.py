@@ -33,6 +33,7 @@ SCRIP_INDEX_PATH = DATA_DIR / "nse-equity-instruments.json"
 OPENING_CANDLE_PAIRS = (("09:14", "09:15"), ("09:15", "09:16"))
 VOLUME_SAMPLE_COUNT = 3
 VOLUME_MULTIPLIER_THRESHOLD = 4.0
+BACKTEST_MAX_AGE_DAYS = 60
 CIRCUIT_BANDS = (2.0, 5.0, 10.0, 20.0)
 
 
@@ -140,6 +141,19 @@ class Candle:
 
 
 @dataclass
+class OpeningSignal:
+    first_label: str
+    first: Candle
+    second_label: str
+    second: Candle
+    volume_average: float
+    volume_multiplier: float
+    colors_match: bool
+    possible_candidate: bool
+    reason: str
+
+
+@dataclass
 class StockState:
     instrument: Instrument
     previous_close: float | None = None
@@ -152,6 +166,7 @@ class StockState:
     last_tick_time: datetime | None = None
     opening_volume_average: float | None = None
     opening_volume_samples: list[dict[str, Any]] = field(default_factory=list)
+    opening_candles: list[Candle] = field(default_factory=list)
     today_opening_volume: int | None = None
     volume_multiplier: float | None = None
     opening_colors_match: bool = False
@@ -457,7 +472,9 @@ class ScannerEngine:
             )
             if len(samples) == VOLUME_SAMPLE_COUNT:
                 today_candles = [
-                    candle for candle in all_candles.values() if candle.start.date() == now.date()
+                    candle
+                    for candle in all_candles.values()
+                    if candle.start.date() == now.date() and candle.end <= now
                 ]
                 return samples, today_candles
             cursor_end = window_start
@@ -517,6 +534,159 @@ class ScannerEngine:
         gap_percent = abs((candle.open - previous_close) / previous_close * 100)
         return any(abs(gap_percent - band) <= 0.35 for band in CIRCUIT_BANDS)
 
+    def backtest_date(self, target_date: date) -> dict[str, Any]:
+        today = datetime.now(IST).date()
+        earliest = today - timedelta(days=BACKTEST_MAX_AGE_DAYS)
+        if target_date > today:
+            raise ValueError("Backtest date cannot be in the future")
+        if target_date < earliest:
+            raise ValueError(
+                f"Backtest date must be within the last {BACKTEST_MAX_AGE_DAYS} days"
+            )
+
+        with self._lock:
+            states = list(self._states.values())
+        if not states:
+            raise ValueError("Add stocks before running a backtest")
+
+        client = self._client()
+        rows: list[dict[str, Any]] = []
+        completed_count = 0
+        first_error: str | None = None
+        for index, state in enumerate(states):
+            if index:
+                time.sleep(1.15)
+            try:
+                candles = self._fetch_backtest_history(client, state.instrument, target_date)
+                rows.append(self._build_backtest_row(state.instrument, target_date, candles))
+                completed_count += 1
+            except Exception as exc:
+                first_error = first_error or str(exc)
+                rows.append(self._backtest_error_row(state.instrument, target_date, str(exc)))
+                if _should_stop_api_batch(exc):
+                    for remaining in states[index + 1 :]:
+                        rows.append(
+                            self._backtest_error_row(
+                                remaining.instrument,
+                                target_date,
+                                f"Skipped after Dhan error: {exc}",
+                            )
+                        )
+                    break
+
+        if states and completed_count == 0 and first_error and _should_stop_api_batch(first_error):
+            raise RuntimeError(first_error)
+
+        rows.sort(
+            key=lambda row: (
+                row["possible_candidate"],
+                row["volume_multiplier"] if row["volume_multiplier"] is not None else -1,
+            ),
+            reverse=True,
+        )
+        return {
+            "target_date": target_date.isoformat(),
+            "stocks": rows,
+            "tested_count": sum(row["error"] is None for row in rows),
+            "four_x_count": sum(
+                row["volume_multiplier"] is not None
+                and row["volume_multiplier"] >= VOLUME_MULTIPLIER_THRESHOLD
+                for row in rows
+            ),
+            "candidate_count": sum(row["possible_candidate"] for row in rows),
+            "error_count": sum(row["error"] is not None for row in rows),
+        }
+
+    def _fetch_backtest_history(
+        self,
+        client: Any,
+        instrument: Instrument,
+        target_date: date,
+    ) -> list[Candle]:
+        range_start = datetime.combine(
+            target_date - timedelta(days=BACKTEST_MAX_AGE_DAYS),
+            dt_time.min,
+            tzinfo=IST,
+        )
+        range_end = datetime.combine(target_date + timedelta(days=1), dt_time.min, tzinfo=IST)
+        response = self._intraday_with_retry(
+            client,
+            instrument.security_id,
+            instrument.exchange_segment,
+            instrument.instrument_type,
+            range_start.strftime("%Y-%m-%d %H:%M:%S"),
+            range_end.strftime("%Y-%m-%d %H:%M:%S"),
+        )
+        return self._parse_intraday_candles(response)
+
+    def _build_backtest_row(
+        self,
+        instrument: Instrument,
+        target_date: date,
+        candles: list[Candle],
+    ) -> dict[str, Any]:
+        samples = self._select_historical_opening_samples(
+            candles, target_date, VOLUME_SAMPLE_COUNT
+        )
+        if len(samples) != VOLUME_SAMPLE_COUNT:
+            raise RuntimeError(
+                f"Only {len(samples)} valid prior opening candle(s) found; 3 are required"
+            )
+
+        target_candles = [candle for candle in candles if candle.start.date() == target_date]
+        if not target_candles:
+            raise RuntimeError("No intraday data returned for the selected date")
+
+        average = sum(sample["volume"] for sample in samples) / len(samples)
+        signal = self._calculate_opening_signal(target_candles, average)
+        return {
+            "symbol": instrument.symbol,
+            "name": instrument.name,
+            "security_id": instrument.security_id,
+            "target_date": target_date.isoformat(),
+            "first_candle_start": signal.first.start.isoformat(timespec="seconds"),
+            "first_candle_color": signal.first.color,
+            "second_candle_start": signal.second.start.isoformat(timespec="seconds"),
+            "second_candle_color": signal.second.color,
+            "first_candle_volume": signal.first.volume,
+            "opening_volume_average": average,
+            "opening_volume_samples": samples,
+            "volume_multiplier": signal.volume_multiplier,
+            "opening_colors_match": signal.colors_match,
+            "possible_candidate": signal.possible_candidate,
+            "candidate_reason": signal.reason,
+            "is_fno": instrument.symbol in FNO_SYMBOLS,
+            "status": "candidate" if signal.possible_candidate else "checked",
+            "error": None,
+        }
+
+    @staticmethod
+    def _backtest_error_row(
+        instrument: Instrument,
+        target_date: date,
+        error: str,
+    ) -> dict[str, Any]:
+        return {
+            "symbol": instrument.symbol,
+            "name": instrument.name,
+            "security_id": instrument.security_id,
+            "target_date": target_date.isoformat(),
+            "first_candle_start": None,
+            "first_candle_color": None,
+            "second_candle_start": None,
+            "second_candle_color": None,
+            "first_candle_volume": None,
+            "opening_volume_average": None,
+            "opening_volume_samples": [],
+            "volume_multiplier": None,
+            "opening_colors_match": False,
+            "possible_candidate": False,
+            "candidate_reason": None,
+            "is_fno": instrument.symbol in FNO_SYMBOLS,
+            "status": "error",
+            "error": error,
+        }
+
     def evaluate_opening_candidates(self, client: Any | None = None) -> int:
         client = client or self._client()
         with self._lock:
@@ -555,38 +725,76 @@ class ScannerEngine:
         return candidate_count
 
     def _apply_opening_candidate(self, symbol: str, candles: list[Candle]) -> bool:
-        colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
-        selected_pair = self._select_opening_pair(candles)
-        if selected_pair is None:
-            raise RuntimeError("Dhan did not return a complete opening candle pair")
-        _, first, _, _ = selected_pair
-
         with self._lock:
             target = self._states.get(symbol)
             if target is None:
                 return False
-            target.today_opening_volume = first.volume
+            self._merge_opening_candles(target, candles)
             average = target.opening_volume_average
-            target.volume_multiplier = first.volume / average if average and average > 0 else None
-            target.opening_colors_match = colors_match
-            meets_volume = (
-                target.volume_multiplier is not None
-                and target.volume_multiplier >= VOLUME_MULTIPLIER_THRESHOLD
-            )
-            target.possible_candidate = colors_match and meets_volume
-            if target.volume_multiplier is None:
+        if not average or average <= 0:
+            colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
+            selected_pair = self._select_opening_pair(candles)
+            if selected_pair is None:
+                raise RuntimeError("Dhan did not return a complete opening candle pair")
+            _, first, _, _ = selected_pair
+            with self._lock:
+                target = self._states.get(symbol)
+                if target is None:
+                    return False
+                target.today_opening_volume = first.volume
+                target.volume_multiplier = None
+                target.opening_colors_match = colors_match
+                target.possible_candidate = False
                 target.candidate_reason = f"{color_reason}; cache volume average first"
-            else:
-                target.candidate_reason = (
-                    f"{color_reason}; opening volume {first.volume:,} / average {average:,.0f} "
-                    f"= {target.volume_multiplier:.2f}x"
-                )
+                return False
+
+        signal = self._calculate_opening_signal(candles, average)
+        with self._lock:
+            target = self._states.get(symbol)
+            if target is None:
+                return False
+            target.today_opening_volume = signal.first.volume
+            target.volume_multiplier = signal.volume_multiplier
+            target.opening_colors_match = signal.colors_match
+            target.possible_candidate = signal.possible_candidate
+            target.candidate_reason = signal.reason
             return target.possible_candidate
 
+    def _calculate_opening_signal(
+        self,
+        candles: list[Candle],
+        volume_average: float,
+    ) -> OpeningSignal:
+        if volume_average <= 0:
+            raise ValueError("Opening volume average must be greater than zero")
+        colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
+        selected_pair = self._select_opening_pair(candles)
+        if selected_pair is None:
+            raise RuntimeError("Dhan did not return a complete opening candle pair")
+        first_label, first, second_label, second = selected_pair
+        multiplier = first.volume / volume_average
+        possible_candidate = colors_match and multiplier >= VOLUME_MULTIPLIER_THRESHOLD
+        reason = (
+            f"{color_reason}; opening volume {first.volume:,} / average {volume_average:,.0f} "
+            f"= {multiplier:.2f}x"
+        )
+        return OpeningSignal(
+            first_label=first_label,
+            first=first,
+            second_label=second_label,
+            second=second,
+            volume_average=volume_average,
+            volume_multiplier=multiplier,
+            colors_match=colors_match,
+            possible_candidate=possible_candidate,
+            reason=reason,
+        )
+
     def _fetch_opening_candles(self, client: Any, instrument: Instrument) -> list[Candle]:
-        today = datetime.now(IST).date()
+        now = datetime.now(IST)
+        today = now.date()
         session_start = datetime.combine(today, dt_time(9, 14), tzinfo=IST)
-        session_end = datetime.combine(today, dt_time(9, 18), tzinfo=IST)
+        session_end = min(now, datetime.combine(today, dt_time(9, 26), tzinfo=IST))
         response = self._intraday_with_retry(
             client,
             instrument.security_id,
@@ -595,7 +803,9 @@ class ScannerEngine:
             session_start.strftime("%Y-%m-%d %H:%M:%S"),
             session_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        return self._parse_intraday_candles(response)
+        return [
+            candle for candle in self._parse_intraday_candles(response) if candle.end <= now
+        ]
 
     def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
         selected = self._select_opening_pair(candles)
@@ -623,6 +833,47 @@ class ScannerEngine:
             if first is not None and second is not None:
                 return first_label, first, second_label, second
         return None
+
+    @staticmethod
+    def _opening_window_candles(candles: list[Candle]) -> list[Candle]:
+        if not candles:
+            return []
+        session_date = max(candle.start.date() for candle in candles)
+        by_start = {
+            candle.start: candle
+            for candle in candles
+            if candle.start.date() == session_date
+            and dt_time(9, 14) <= candle.start.time() <= dt_time(9, 24)
+        }
+        ordered = sorted(by_start.values(), key=lambda candle: candle.start)
+        if not ordered:
+            return []
+        first_start = next(
+            (
+                candle.start
+                for candle in ordered
+                if candle.start.time() == dt_time(9, 14)
+            ),
+            datetime.combine(session_date, dt_time(9, 15), tzinfo=IST),
+        )
+        last_start = first_start + timedelta(minutes=9)
+        return [
+            candle for candle in ordered if first_start <= candle.start <= last_start
+        ]
+
+    def _merge_opening_candles(self, state: StockState, candles: list[Candle]) -> None:
+        if not candles:
+            return
+        latest_date = max(candle.start.date() for candle in candles)
+        existing = {
+            candle.start: candle
+            for candle in state.opening_candles
+            if candle.start.date() == latest_date
+        }
+        for candle in candles:
+            if candle.start.date() == latest_date:
+                existing[candle.start] = candle
+        state.opening_candles = self._opening_window_candles(list(existing.values()))
 
     @staticmethod
     def _is_opposite_green_red_pair(first_color: str, second_color: str) -> bool:
@@ -858,6 +1109,7 @@ class ScannerEngine:
                 state = self._states.get(instrument.symbol)
                 if state and (state.completed_candle is None or candle.start >= state.completed_candle.start):
                     state.completed_candle = candle
+                    self._merge_opening_candles(state, [candle])
                     state.status = "repaired"
                     repaired += 1
         return repaired
@@ -938,6 +1190,7 @@ class ScannerEngine:
 
             if candle_start > state.current_candle.start:
                 state.completed_candle = state.current_candle
+                self._merge_opening_candles(state, [state.completed_candle])
                 state.current_candle = Candle(candle_start, ltp, ltp, ltp, ltp, volume_delta)
                 return
 
@@ -980,6 +1233,10 @@ class ScannerEngine:
 
     def _row(self, state: StockState) -> dict[str, Any]:
         candle = state.completed_candle
+        opening_candles = self._opening_window_candles(state.opening_candles)
+        opening_pair = self._select_opening_pair(opening_candles)
+        first_opening = opening_pair[1] if opening_pair else None
+        second_opening = opening_pair[3] if opening_pair else None
         return {
             "symbol": state.instrument.symbol,
             "name": state.instrument.name,
@@ -999,6 +1256,20 @@ class ScannerEngine:
             "last_tick_time": state.last_tick_time.isoformat(timespec="seconds") if state.last_tick_time else None,
             "opening_volume_average": state.opening_volume_average,
             "opening_volume_samples": state.opening_volume_samples,
+            "first_candle_color": first_opening.color if first_opening else None,
+            "second_candle_color": second_opening.color if second_opening else None,
+            "first_candle_turnover": first_opening.turnover if first_opening else 0.0,
+            "opening_candles": [
+                {
+                    "start": item.start.isoformat(timespec="seconds"),
+                    "end": item.end.isoformat(timespec="seconds"),
+                    "color": item.color,
+                    "close": item.close,
+                    "volume": item.volume,
+                    "turnover": item.turnover,
+                }
+                for item in opening_candles
+            ],
             "today_opening_volume": state.today_opening_volume,
             "volume_multiplier": state.volume_multiplier,
             "opening_colors_match": state.opening_colors_match,

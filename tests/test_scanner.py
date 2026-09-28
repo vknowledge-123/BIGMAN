@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -175,6 +175,10 @@ def test_opening_candidate_badge_green_red(tmp_path) -> None:
     row = engine.snapshot()["stocks"][0]
     assert row["possible_candidate"] is True
     assert row["volume_multiplier"] == 5
+    assert row["first_candle_color"] == "green"
+    assert row["second_candle_color"] == "red"
+    assert row["first_candle_turnover"] == 104000
+    assert len(row["opening_candles"]) == 2
     assert "Matched 09:15/09:16: 09:15 green, 09:16 red" in row["candidate_reason"]
 
 
@@ -269,6 +273,40 @@ def test_opening_candidate_prefers_914_when_all_three_labels_exist(tmp_path) -> 
     assert "Matched 09:14/09:15" in row["candidate_reason"]
 
 
+def test_live_opening_window_keeps_first_ten_candles_and_rest_replaces_websocket(tmp_path) -> None:
+    engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
+    trading_date = date(2026, 9, 24)
+    instrument = Instrument("AAA", "123", "AAA LTD")
+    state = StockState(instrument, opening_volume_average=200)
+    websocket_first = Candle(
+        datetime(2026, 9, 24, 9, 15, tzinfo=IST), 100, 102, 99, 101, 500
+    )
+    state.opening_candles = [websocket_first]
+    with engine._lock:
+        engine._states = {"AAA": state}
+
+    rest_candles = [
+        Candle(
+            datetime.combine(trading_date, datetime.min.time(), tzinfo=IST).replace(
+                hour=9, minute=14 + index
+            ),
+            100 + index,
+            102 + index,
+            99 + index,
+            101 + index,
+            1000 + index,
+        )
+        for index in range(11)
+    ]
+    engine._merge_opening_candles(state, rest_candles)
+
+    row = engine.snapshot()["stocks"][0]
+    assert len(row["opening_candles"]) == 10
+    assert row["opening_candles"][0]["start"].endswith("T09:14:00+05:30")
+    assert row["opening_candles"][-1]["start"].endswith("T09:23:00+05:30")
+    assert row["opening_candles"][1]["volume"] == 1001
+
+
 def test_quote_ticks_complete_previous_one_minute_candle(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.json")
     engine = ScannerEngine(store)
@@ -286,6 +324,23 @@ def test_quote_ticks_complete_previous_one_minute_candle(tmp_path) -> None:
     assert snapshot["candle_close"] == 103
     assert snapshot["candle_volume"] == 250
     assert snapshot["candle_turnover"] == 25750
+
+
+def test_websocket_appends_completed_opening_candles(tmp_path) -> None:
+    engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
+    state = StockState(Instrument("AAA", "123", "AAA LTD"), previous_close=100)
+    with engine._lock:
+        engine._states = {"AAA": state}
+
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "101", "volume": 1000, "LTT": "09:15:10"})
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "102", "volume": 1150, "LTT": "09:15:50"})
+    engine._on_message(None, {"type": "Quote Data", "security_id": 123, "LTP": "103", "volume": 1300, "LTT": "09:16:02"})
+
+    row = engine.snapshot()["stocks"][0]
+    assert len(row["opening_candles"]) == 1
+    assert row["opening_candles"][0]["volume"] == 150
+    assert row["opening_candles"][0]["close"] == 102
+    assert row["opening_candles"][0]["turnover"] == 15300
 
 
 def test_opposite_colors_below_four_times_volume_is_not_candidate(tmp_path) -> None:
@@ -440,3 +495,70 @@ def test_volume_cache_stops_batch_on_expired_token(tmp_path) -> None:
 
     assert calls == 1
     assert engine.snapshot()["stocks"][1]["status"] == "volume cache skipped"
+
+
+def test_backtest_date_calculates_candidate_and_fno_badge(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    store.update_credentials("client", "token")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    target_date = datetime.now(IST).date() - timedelta(days=10)
+    instrument = Instrument("COALINDIA", "123", "COAL INDIA LTD")
+    with engine._lock:
+        engine._states = {"COALINDIA": StockState(instrument)}
+
+    candles: list[Candle] = []
+    for offset, volume in ((3, 100), (2, 200), (1, 300)):
+        trading_date = target_date - timedelta(days=offset)
+        candles.extend(
+            [
+                Candle(datetime.combine(trading_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=15), 100, 101, 99, 100, volume),
+                Candle(datetime.combine(trading_date, datetime.min.time(), tzinfo=IST).replace(hour=15, minute=29), 100, 101, 99, 100, 10),
+            ]
+        )
+    candles.extend(
+        [
+            Candle(datetime.combine(target_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=15), 100, 105, 99, 104, 1000),
+            Candle(datetime.combine(target_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=16), 104, 105, 101, 102, 800),
+        ]
+    )
+    engine._fetch_backtest_history = lambda *_args: candles  # type: ignore[method-assign]
+
+    result = engine.backtest_date(target_date)
+
+    assert result["tested_count"] == 1
+    assert result["four_x_count"] == 1
+    assert result["candidate_count"] == 1
+    row = result["stocks"][0]
+    assert row["symbol"] == "COALINDIA"
+    assert row["opening_volume_average"] == 200
+    assert row["volume_multiplier"] == 5
+    assert row["first_candle_color"] == "green"
+    assert row["second_candle_color"] == "red"
+    assert row["possible_candidate"] is True
+    assert row["is_fno"] is True
+
+
+def test_backtest_date_rejects_dates_older_than_sixty_days(tmp_path) -> None:
+    engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
+    old_date = datetime.now(IST).date() - timedelta(days=61)
+
+    with pytest.raises(ValueError, match="last 60 days"):
+        engine.backtest_date(old_date)
+
+
+def test_backtest_non_trading_date_returns_stock_error(tmp_path) -> None:
+    store = ConfigStore(tmp_path / "config.json")
+    store.update_credentials("client", "token")
+    engine = ScannerEngine(store)
+    engine._client = lambda: object()  # type: ignore[method-assign]
+    target_date = datetime.now(IST).date() - timedelta(days=10)
+    with engine._lock:
+        engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
+
+    engine._fetch_backtest_history = lambda *_args: []  # type: ignore[method-assign]
+    result = engine.backtest_date(target_date)
+
+    assert result["tested_count"] == 0
+    assert result["error_count"] == 1
+    assert result["stocks"][0]["status"] == "error"

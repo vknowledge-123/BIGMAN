@@ -16,10 +16,15 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Calculates `Volume SMA = today's first candle volume / cached 3-day average`.
 - Keeps only stocks with a `Volume SMA >= 4.00x` in the dashboard table.
 - Marks `Possible candidate` only when volume is at least `4.00x` and the two opening candles have opposite colors: `green + red` or `red + green`.
+- Shows the first and second opening-candle colours and the first-candle turnover in live mode.
+- Tracks the first 10 completed opening candles with each candle's turnover, volume, close, colour, and timestamp.
+- Seeds opening candles from Dhan intraday history and then adds newly completed candles from the WebSocket feed.
 - Pins possible candidates first, then sorts by `% change` and `1m turnover`.
 - Adds an `F&O` badge for symbols in the configured F&O universe.
 - If Dhan labels the first market candle as `9:14`, the scanner uses the `9:14/9:15` pair.
 - Provides a manual repair button that fetches missing live 1-minute candles and re-checks the 9:15/9:16 candidate candles.
+- Backtests one selected trading date from the last 60 calendar days using Dhan 1-minute historical data.
+- Rebuilds each backtest date's three-session opening-volume average instead of using today's cache.
 
 ## Install
 
@@ -67,6 +72,15 @@ http://127.0.0.1:8000
 4. Click `Cache Volume Average` to cache three valid prior opening volumes. You can run this before, during, or after market hours.
 5. Click `Start Live` to connect the WebSocket feed. At 9:17 IST the app automatically confirms today's opening candles from Dhan intraday data.
 6. Use `Repair + Check Open` if some 1-minute candles are missing due to feed interruption, or to manually refresh candidate checks.
+
+## Backtest Flow
+
+1. Save Dhan credentials and the stock list.
+2. Open the `Backtest` tab.
+3. Select one date from the last 60 days and click `Run Backtest`.
+4. Review stocks with a volume multiplier of at least `4.00x`, including their first two candle colours, three-day average, candidate badge, and F&O badge.
+
+Backtesting does not require `Cache Close`, `Cache Volume Average`, or `Start Live`. Requests are processed sequentially to reduce Dhan rate-limit errors, so large stock lists take about one second per symbol.
 
 ## Notes
 

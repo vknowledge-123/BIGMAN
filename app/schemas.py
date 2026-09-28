@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
@@ -10,6 +12,10 @@ class CredentialsIn(BaseModel):
 
 class SymbolsIn(BaseModel):
     symbols_text: str = ""
+
+
+class BacktestIn(BaseModel):
+    target_date: date
 
 
 class MessageOut(BaseModel):
@@ -44,6 +50,10 @@ class StockRow(BaseModel):
     last_tick_time: str | None = None
     opening_volume_average: float | None = None
     opening_volume_samples: list[dict] = Field(default_factory=list)
+    first_candle_color: str | None = None
+    second_candle_color: str | None = None
+    first_candle_turnover: float = 0.0
+    opening_candles: list[dict] = Field(default_factory=list)
     today_opening_volume: int | None = None
     volume_multiplier: float | None = None
     opening_colors_match: bool = False
@@ -61,3 +71,33 @@ class StateOut(BaseModel):
     stocks: list[StockRow]
     unresolved_symbols: list[str]
     updated_at: str
+
+
+class BacktestRow(BaseModel):
+    symbol: str
+    name: str
+    security_id: str
+    target_date: str
+    first_candle_start: str | None = None
+    first_candle_color: str | None = None
+    second_candle_start: str | None = None
+    second_candle_color: str | None = None
+    first_candle_volume: int | None = None
+    opening_volume_average: float | None = None
+    opening_volume_samples: list[dict] = Field(default_factory=list)
+    volume_multiplier: float | None = None
+    opening_colors_match: bool = False
+    possible_candidate: bool = False
+    candidate_reason: str | None = None
+    is_fno: bool = False
+    status: str = "waiting"
+    error: str | None = None
+
+
+class BacktestOut(BaseModel):
+    target_date: str
+    stocks: list[BacktestRow]
+    tested_count: int
+    four_x_count: int
+    candidate_count: int
+    error_count: int
