@@ -55,6 +55,12 @@ class QualificationFields(BaseModel):
 
 
 class StockRow(QualificationFields):
+    upper_circuit_limit: float | None = None
+    lower_circuit_limit: float | None = None
+    upper_circuit_distance_percent: float | None = None
+    lower_circuit_distance_percent: float | None = None
+    circuit_fetched_at: str | None = None
+    circuit_error: str | None = None
     symbol: str
     name: str | None = None
     security_id: str | None = None

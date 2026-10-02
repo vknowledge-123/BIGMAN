@@ -56,7 +56,7 @@ test('live table displays only qualified rows with correct badges and daily colu
   assert.equal(elements.get('#stockCount').textContent, '2/4');
   assert.match(elements.get('#scanIssues').textContent, /APIERROR: Daily history missing/);
   assert.equal(elements.get('#scanIssues').hidden, false);
-  assert.equal((html.match(/<td(?:>| )/g) || []).length, 36); // 17 cells + one detail row per stock
+  assert.equal((html.match(/<td(?:>| )/g) || []).length, 40); // 19 cells + one detail row per stock
 });
 
 test('backtest filtering matches live and preserves failed-check diagnostics', () => {
@@ -81,9 +81,42 @@ test('empty results use updated table spans and escape provider errors', () => {
   context.state = { stocks: [], status: 'Idle', unresolved_symbols: [] };
   context.result = { stocks: [], qualified_count: 0, candidate_count: 0, error_count: 0 };
   vm.runInContext('renderState(state); renderBacktest(result)', context);
-  assert.match(elements.get('#stockRows').innerHTML, /colspan="17"/);
+  assert.match(elements.get('#stockRows').innerHTML, /colspan="19"/);
   assert.match(elements.get('#backtestRows').innerHTML, /colspan="11"/);
   context.state.stocks = [{ ...fixtures()[0], candidate_reason: '<script>alert(1)</script>' }];
   vm.runInContext('renderState(state)', context);
   assert.doesNotMatch(elements.get('#stockRows').innerHTML, /<script>/);
+});
+
+test('both setup badges remain visible when a red/green stock qualifies for both', () => {
+  const { context, elements } = dashboard();
+  const row = { ...fixtures()[0], first_candle_color: 'red', second_candle_color: 'green', redwala_gira: true };
+  context.state = { stocks: [row], status: 'Idle', unresolved_symbols: [] };
+  context.result = { stocks: [row], qualified_count: 1, candidate_count: 1, redwala_count: 1, error_count: 0 };
+  vm.runInContext('renderState(state); renderBacktest(result)', context);
+  for (const id of ['#stockRows', '#backtestRows']) {
+    assert.match(elements.get(id).innerHTML, /Possible candidate/);
+    assert.match(elements.get(id).innerHTML, /redwala gira/);
+    assert.match(elements.get(id).innerHTML, /F&amp;O/);
+  }
+  context.state.stocks[0] = { ...row, possible_candidate: false, second_candle_color: null };
+  vm.runInContext('renderState(state)', context);
+  assert.match(elements.get('#stockRows').innerHTML, /redwala gira/);
+  assert.match(elements.get('#stockRows').innerHTML, /2: waiting/);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Possible candidate/);
+});
+
+test('circuit distances display percentage, zero at the limit and missing states', () => {
+  const { context } = dashboard();
+  context.row = { upper_circuit_distance_percent: 1, lower_circuit_distance_percent: 10,
+    upper_circuit_limit: 101, lower_circuit_limit: 90, circuit_fetched_at: '2026-10-01T10:00:00+05:30' };
+  assert.match(vm.runInContext('fmtCircuitDistance(row, "upper")', context), /1\.00%/);
+  assert.match(vm.runInContext('fmtCircuitDistance(row, "lower")', context), /10\.00%/);
+  context.row.upper_circuit_distance_percent = 0;
+  assert.match(vm.runInContext('fmtCircuitDistance(row, "upper")', context), /0\.00%/);
+  context.row.upper_circuit_distance_percent = null;
+  context.row.circuit_error = '<script>Bad quote</script>';
+  const missing = vm.runInContext('fmtCircuitDistance(row, "upper")', context);
+  assert.match(missing, /<strong>--<\/strong>/);
+  assert.doesNotMatch(missing, /<script>/);
 });

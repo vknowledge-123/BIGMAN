@@ -16,7 +16,7 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Calculates `Volume SMA = today's first candle volume / cached 3-day average`.
 - Requires first-minute `Volume SMA >= 4.00x` and the previous-day filter below for every displayed stock.
 - Marks `Possible candidate` for `green + green`, `green + red`, or `red + green` opening candles passing both volume checks.
-- Marks red/red candles `redwala gira` only when both volume checks pass AND the first candle's open equals its high. Open = High is not required for other colour pairs. Doji pairs are excluded.
+- Marks `redwala gira` when both volume checks pass AND the first candle is red with open equal to high. The second candle can have any colour or be unavailable. A red/green pair can receive both setup badges. `Possible candidate` still requires its two-candle colour pattern; doji pairs cannot receive that badge.
 - Calculates previous-day daily SMA as the last completed session's volume divided by the average daily volume of its three preceding trading sessions.
 - Passes the daily filter when daily SMA is `<= 4x`, OR the previous day's signed close-to-close change is `<= +1%`. This includes negative changes; it is not an absolute-percent test.
 - Shows previous-day SMA and percent change; hover over the SMA to see dates and volume inputs. Missing or invalid daily data cannot qualify.
@@ -25,6 +25,9 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Seeds opening candles from Dhan intraday history and then adds newly completed candles from the WebSocket feed.
 - Pins possible candidates first, then sorts by `% change` and `1m turnover`.
 - Adds an `F&O` badge for symbols in the configured F&O universe.
+- Shows live `UC Away % = (upper circuit - LTP) / LTP * 100` and `LC Away % = (LTP - lower circuit) / LTP * 100` for qualifying stocks, including `redwala gira`. At LTP 100, limits 101/90 mean 1%/10% away.
+- Fetches limits through Dhan's full quote SDK in batches after candidate checks and every 60 seconds while live. Distances recalculate with LTP updates. Quote requests share a one-request-per-second throttle; failed quotes retry on the next refresh, without affecting badges or eligibility.
+- Missing, invalid, previous-date or over-two-minute-old circuit quotes show `--`; a value of 0% means price is at the limit, not necessarily locked there. Circuit prices are not persisted or used in backtests, since historical candles do not include historical circuit bands.
 - If Dhan labels the first market candle as `9:14`, the scanner uses the `9:14/9:15` pair.
 - Provides a manual repair button that fetches missing live 1-minute candles and re-checks the 9:15/9:16 candidate candles.
 - Backtests one selected trading date from the last 60 calendar days using Dhan 1-minute historical data.
@@ -74,7 +77,7 @@ http://127.0.0.1:8000
 2. Paste symbols and click `Save List`.
 3. Click `Cache Close` to fetch previous close.
 4. Click `Cache Volume Average` to cache three valid prior opening volumes and the previous-day daily filter. Refresh this each scan day. You can run it before, during, or after market hours.
-5. Click `Start Live` to connect the WebSocket feed. At 9:17 IST the app automatically confirms today's opening candles from Dhan intraday data.
+5. Click `Start Live` to connect the WebSocket feed. At 9:16 IST the app starts confirming the completed first candle from Dhan intraday data for `redwala gira`, then checks both opening candles at 9:17 IST for `Possible candidate`. Actual results depend on API availability and processing time.
 6. Use `Repair + Check Open` if some 1-minute candles are missing due to feed interruption, or to manually refresh candidate checks.
 
 ## Backtest Flow

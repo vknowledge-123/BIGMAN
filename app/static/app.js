@@ -150,9 +150,21 @@ function fmtDailyFilter(row) {
 }
 
 function fmtSignalBadge(row, reason) {
-  if (row.possible_candidate) return `<span class="candidate-badge" title="${reason}">Possible candidate</span>`;
-  if (row.redwala_gira) return `<span class="candidate-badge redwala-badge" title="${reason}">redwala gira</span>`;
-  return `<span class="muted-small" title="${reason}">--</span>`;
+  const badges = [];
+  if (row.possible_candidate) badges.push(`<span class="candidate-badge" title="${reason}">Possible candidate</span>`);
+  if (row.redwala_gira) badges.push(`<span class="candidate-badge redwala-badge" title="${reason}">redwala gira</span>`);
+  return badges.join("") || `<span class="muted-small" title="${reason}">--</span>`;
+}
+
+function fmtCircuitDistance(row, side) {
+  const distance = row[`${side}_circuit_distance_percent`];
+  const limit = row[`${side}_circuit_limit`];
+  const available = distance !== null && distance !== undefined && Number.isFinite(Number(distance));
+  const title = available
+    ? `${side === "upper" ? "Upper" : "Lower"} circuit ${fmtNumber(limit)}; quote ${fmtTime(row.circuit_fetched_at)}; distance as % of LTP`
+    : (row.circuit_error || "Circuit limit unavailable");
+  return `<td class="circuit-distance" title="${escapeHtml(title)}"><strong>${available ? `${fmtNumber(distance)}%` : "--"}</strong>
+    <small>${limit === null || limit === undefined ? "" : `Limit ${fmtNumber(limit)}`}</small></td>`;
 }
 
 async function api(path, options = {}) {
@@ -205,7 +217,7 @@ function renderState(state) {
     const message = state.stocks.length
       ? "No stocks match both volume checks and candle conditions yet"
       : "No stocks loaded";
-    els.rows.innerHTML = `<tr><td colspan="17" class="empty">${message}</td></tr>`;
+    els.rows.innerHTML = `<tr><td colspan="19" class="empty">${message}</td></tr>`;
     return;
   }
 
@@ -232,6 +244,8 @@ function renderState(state) {
         <td class="${row.percent_change === null ? "" : changeClass}">
           ${row.percent_change === null ? "--" : `${fmtNumber(row.percent_change, 2)}%`}
         </td>
+        ${fmtCircuitDistance(row, "upper")}
+        ${fmtCircuitDistance(row, "lower")}
         <td>${fmtOpeningPair(row)}</td>
         <td>${fmtInt(row.today_opening_volume)}</td>
         <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
@@ -246,7 +260,7 @@ function renderState(state) {
         <td><span class="pill" title="${safeStatus}">${safeStatus}</span></td>
       </tr>
       <tr class="opening-detail-row">
-        <td colspan="17">
+        <td colspan="19">
           <div class="opening-detail-head">
             <span>Opening 10 candles</span>
             <span>${(row.opening_candles || []).length}/10 completed</span>

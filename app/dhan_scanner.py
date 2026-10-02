@@ -36,6 +36,7 @@ VOLUME_SAMPLE_COUNT = 3
 VOLUME_MULTIPLIER_THRESHOLD = 4.0
 BACKTEST_MAX_AGE_DAYS = 60
 CIRCUIT_BANDS = (2.0, 5.0, 10.0, 20.0)
+CIRCUIT_REFRESH_SECONDS = 60
 
 
 def parse_symbols(raw: str) -> list[str]:
@@ -146,7 +147,7 @@ class OpeningSignal:
     first_label: str
     first: Candle
     second_label: str
-    second: Candle
+    second: Candle | None
     volume_average: float
     volume_multiplier: float
     colors_match: bool
@@ -165,6 +166,7 @@ class StockState:
     current_candle: Candle | None = None
     completed_candle: Candle | None = None
     last_tick_time: datetime | None = None
+    last_tick_received_at: datetime | None = None
     opening_volume_average: float | None = None
     opening_volume_samples: list[dict[str, Any]] = field(default_factory=list)
     opening_candles: list[Candle] = field(default_factory=list)
@@ -176,6 +178,12 @@ class StockState:
     qualifies_scan: bool = False
     daily_filter: dict[str, Any] | None = None
     signal_session: date | None = None
+    opening_pair_confirmed: bool = False
+    upper_circuit_limit: float | None = None
+    lower_circuit_limit: float | None = None
+    circuit_fetched_at: datetime | None = None
+    circuit_attempt_at: datetime | None = None
+    circuit_error: str | None = None
     candidate_reason: str | None = None
     status: str = "waiting"
     error: str | None = None
@@ -261,6 +269,10 @@ class ScannerEngine:
         self._lock = threading.RLock()
         self._history_lock = threading.Lock()
         self._last_history_call = 0.0
+        self._quote_lock = threading.Lock()
+        self._last_quote_call = 0.0
+        self._circuit_refresh_lock = threading.Lock()
+        self._circuit_thread: threading.Thread | None = None
         self._states: dict[str, StockState] = {}
         self._unresolved_symbols: list[str] = []
         self._feed: Any = None
@@ -427,7 +439,7 @@ class ScannerEngine:
                         target.qualifies_scan = False
                         target.error = None
                         target.status = "volume cached"
-                if self._select_opening_pair(today_candles) is not None:
+                if self._first_opening_candle(today_candles) is not None:
                     self._apply_opening_candidate(symbol, today_candles)
             except Exception as exc:
                 errors[symbol] = str(exc)
@@ -465,6 +477,7 @@ class ScannerEngine:
                 self._status += f"; {len(errors)} error(s)"
         if not cached and fatal_error:
             raise RuntimeError(fatal_error)
+        self.refresh_circuit_limits(client)
         return cached
 
     def _fetch_opening_volume_history(
@@ -572,10 +585,10 @@ class ScannerEngine:
         daily_ready = bool(daily_filter and daily_filter.get("session_date") == session.isoformat())
         daily_pass = daily_ready and daily_filter.get("passes") is True
         volume_pass = signal.volume_multiplier >= VOLUME_MULTIPLIER_THRESHOLD
-        red_red = signal.first.color == signal.second.color == "red"
+        first_red = signal.first.color == "red"
         open_high = signal.first.open == signal.first.high
         possible = bool(volume_pass and daily_pass and signal.colors_match)
-        redwala = bool(volume_pass and daily_pass and red_red and open_high)
+        redwala = bool(volume_pass and daily_pass and first_red and open_high)
         reason = signal.reason
         if not daily_ready:
             reason += "; previous-day volume check unavailable for this session"
@@ -585,8 +598,10 @@ class ScannerEngine:
                 f", close change {daily_filter['percent_change']:.2f}%"
                 f" ({'pass' if daily_pass else 'fail'})"
             )
-        if red_red:
+        if first_red:
             reason += f"; first candle Open = High: {'yes' if open_high else 'no'}"
+            if open_high:
+                reason += "; redwala gira does not require a second candle"
         return {
             "possible_candidate": possible,
             "redwala_gira": redwala,
@@ -712,8 +727,8 @@ class ScannerEngine:
             "target_date": target_date.isoformat(),
             "first_candle_start": signal.first.start.isoformat(timespec="seconds"),
             "first_candle_color": signal.first.color,
-            "second_candle_start": signal.second.start.isoformat(timespec="seconds"),
-            "second_candle_color": signal.second.color,
+            "second_candle_start": signal.second.start.isoformat(timespec="seconds") if signal.second else None,
+            "second_candle_color": signal.second.color if signal.second else None,
             "first_candle_volume": signal.first.volume,
             "opening_volume_average": average,
             "opening_volume_samples": samples,
@@ -801,7 +816,82 @@ class ScannerEngine:
                     break
         if states and checked_count == 0 and first_error:
             raise RuntimeError(first_error)
+        self.refresh_circuit_limits(client)
         return candidate_count
+
+    def refresh_circuit_limits(self, client: Any | None = None) -> None:
+        # Quote failures must not alter the independent opening-setup qualification.
+        if not self._circuit_refresh_lock.acquire(blocking=False):
+            return
+        try:
+            now = datetime.now(IST)
+            with self._lock:
+                states = [state for state in self._states.values()
+                          if state.qualifies_scan and state.signal_session == now.date()
+                          and (state.circuit_attempt_at is None
+                               or state.circuit_attempt_at.date() != now.date()
+                               or (now - state.circuit_attempt_at).total_seconds() >= CIRCUIT_REFRESH_SECONDS)]
+                for state in states:
+                    state.circuit_attempt_at = now
+            if not states:
+                return
+            try:
+                client = client or self._client()
+                for offset in range(0, len(states), 1000):
+                    batch = states[offset:offset + 1000]
+                    securities: dict[str, list[int]] = {}
+                    for state in batch:
+                        securities.setdefault(state.instrument.exchange_segment, []).append(int(state.instrument.security_id))
+                    requested_at = datetime.now(IST)
+                    response = self._quote_call(client.quote_data, securities)
+                    # The SDK wraps the quote endpoint's own status/data envelope.
+                    data = _extract_data(_extract_data(response))
+                    fetched_at = datetime.now(IST)
+                    with self._lock:
+                        for state in batch:
+                            if self._states.get(state.instrument.symbol) is not state:
+                                continue
+                            segment = data.get(state.instrument.exchange_segment) or {}
+                            item = segment.get(state.instrument.security_id) or segment.get(int(state.instrument.security_id)) or {}
+                            upper = _float_or_none(item.get("upper_circuit_limit"))
+                            lower = _float_or_none(item.get("lower_circuit_limit"))
+                            upper = upper if upper is not None and upper > 0 else None
+                            lower = lower if lower is not None and lower > 0 else None
+                            if upper is not None and lower is not None and lower > upper:
+                                upper = lower = None
+                            state.upper_circuit_limit = upper
+                            state.lower_circuit_limit = lower
+                            state.circuit_fetched_at = fetched_at
+                            state.circuit_error = None if upper is not None and lower is not None else "Dhan circuit limit unavailable or invalid"
+                            price = _float_or_none(item.get("last_price"))
+                            # Do not replace a WebSocket tick received while the quote was in flight.
+                            if price is not None and price > 0 and (state.last_tick_received_at is None or state.last_tick_received_at < requested_at):
+                                state.ltp = price
+                                if state.previous_close:
+                                    state.percent_change = (price - state.previous_close) / state.previous_close * 100
+            except Exception as exc:
+                with self._lock:
+                    for state in states:
+                        if self._states.get(state.instrument.symbol) is state:
+                            state.upper_circuit_limit = state.lower_circuit_limit = None
+                            state.circuit_error = f"Circuit quote failed: {exc}"
+        finally:
+            self._circuit_refresh_lock.release()
+
+    def _quote_call(self, method: Any, securities: dict[str, list[int]]) -> Any:
+        # OHLC and full quotes share Dhan's one-request-per-second quote allowance.
+        with self._quote_lock:
+            delay = 1.05 - (time.monotonic() - self._last_quote_call)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_quote_call = time.monotonic()
+            return method(securities)
+
+    def _refresh_circuit_limits_loop(self, stop_event: threading.Event) -> None:
+        while not stop_event.is_set():
+            self.refresh_circuit_limits()
+            if stop_event.wait(CIRCUIT_REFRESH_SECONDS):
+                return
 
     def _apply_opening_candidate(self, symbol: str, candles: list[Candle]) -> bool:
         with self._lock:
@@ -812,10 +902,9 @@ class ScannerEngine:
             average = target.opening_volume_average
         if not average or average <= 0:
             colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
-            selected_pair = self._select_opening_pair(candles)
-            if selected_pair is None:
-                raise RuntimeError("Dhan did not return a complete opening candle pair")
-            _, first, _, _ = selected_pair
+            first = self._first_opening_candle(candles)
+            if first is None:
+                raise RuntimeError("Dhan did not return the first opening candle")
             with self._lock:
                 target = self._states.get(symbol)
                 if target is None:
@@ -839,6 +928,7 @@ class ScannerEngine:
             target.opening_colors_match = signal.colors_match
             qualification = self._qualify_signal(signal, target.daily_filter, signal.first.start.date())
             target.signal_session = signal.first.start.date()
+            target.opening_pair_confirmed = signal.second is not None
             target.possible_candidate = qualification["possible_candidate"]
             target.redwala_gira = qualification["redwala_gira"]
             target.qualifies_scan = qualification["qualifies_scan"]
@@ -855,8 +945,14 @@ class ScannerEngine:
         colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
         selected_pair = self._select_opening_pair(candles)
         if selected_pair is None:
-            raise RuntimeError("Dhan did not return a complete opening candle pair")
-        first_label, first, second_label, second = selected_pair
+            first = self._first_opening_candle(candles)
+            if first is None:
+                raise RuntimeError("Dhan did not return the first opening candle")
+            first_label = first.start.strftime("%H:%M")
+            second_label = first.end.strftime("%H:%M")
+            second = None
+        else:
+            first_label, first, second_label, second = selected_pair
         multiplier = first.volume / volume_average
         possible_candidate = colors_match and multiplier >= VOLUME_MULTIPLIER_THRESHOLD
         reason = (
@@ -896,6 +992,9 @@ class ScannerEngine:
     def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
         selected = self._select_opening_pair(candles)
         if selected is None:
+            first = self._first_opening_candle(candles)
+            if first is not None:
+                return False, f"{first.start:%H:%M} {first.color}; second opening candle unavailable"
             labels = ", ".join(f"{first}/{second}" for first, second in OPENING_CANDLE_PAIRS)
             raise RuntimeError(f"Dhan did not return opening candle pairs: {labels}")
 
@@ -1026,7 +1125,7 @@ class ScannerEngine:
     def _ohlc_batch_with_retry(self, client: Any, securities: dict[str, list[int]]) -> Any:
         last_error: str | None = None
         for attempt in range(3):
-            response = client.ohlc_data(securities)
+            response = self._quote_call(client.ohlc_data, securities)
             if isinstance(response, dict) and response.get("status") == "failure":
                 last_error = _format_dhan_error(response.get("remarks"))
                 if "DH-904" in last_error or "Rate_Limit" in last_error:
@@ -1121,6 +1220,13 @@ class ScannerEngine:
             daemon=True,
         )
         self._candidate_thread.start()
+        self._circuit_thread = threading.Thread(
+            target=self._refresh_circuit_limits_loop,
+            args=(self._candidate_stop,),
+            name="circuit-limit-refresh",
+            daemon=True,
+        )
+        self._circuit_thread.start()
 
     def stop(self) -> None:
         feed = self._feed
@@ -1131,6 +1237,7 @@ class ScannerEngine:
             self._feed = None
             self._feed_thread = None
             self._candidate_thread = None
+            self._circuit_thread = None
             if self._status != "Idle":
                 self._status = "Stopped"
         if feed is not None:
@@ -1141,26 +1248,31 @@ class ScannerEngine:
 
     def _refresh_opening_candidates_when_ready(self, stop_event: threading.Event) -> None:
         now = datetime.now(IST)
-        ready_at = datetime.combine(now.date(), dt_time(9, 17), tzinfo=IST)
-        wait_seconds = max((ready_at - now).total_seconds(), 0)
-        if stop_event.wait(wait_seconds):
-            return
-        with self._lock:
-            already_checked = bool(self._states) and all(
-                state.signal_session == now.date()
-                and state.daily_filter is not None
-                and state.daily_filter.get("session_date") == now.date().isoformat()
-                for state in self._states.values()
-            )
-        if already_checked:
-            return
-        try:
-            count = self.evaluate_opening_candidates()
+        pair_ready_at = datetime.combine(now.date(), dt_time(9, 17), tzinfo=IST)
+        # Confirm the first candle at 09:16, then refresh the two-candle setup at 09:17.
+        minutes = (16, 17) if now < pair_ready_at else (17,)
+        for minute in minutes:
+            ready_at = datetime.combine(now.date(), dt_time(9, minute), tzinfo=IST)
+            wait_seconds = max((ready_at - datetime.now(IST)).total_seconds(), 0)
+            if stop_event.wait(wait_seconds):
+                return
             with self._lock:
-                if self._running:
-                    self._status = f"Live feed connected; {count} possible candidate(s)"
-        except Exception as exc:
-            LOGGER.warning("Automatic opening candidate refresh failed: %s", exc)
+                already_checked = bool(self._states) and all(
+                    state.signal_session == now.date()
+                    and (minute == 16 or state.opening_pair_confirmed)
+                    and state.daily_filter is not None
+                    and state.daily_filter.get("session_date") == now.date().isoformat()
+                    for state in self._states.values()
+                )
+            if already_checked:
+                continue
+            try:
+                count = self.evaluate_opening_candidates()
+                with self._lock:
+                    if self._running:
+                        self._status = f"Live feed connected; {count} possible candidate(s)"
+            except Exception as exc:
+                LOGGER.warning("Automatic opening candidate refresh failed: %s", exc)
 
     def repair_missing_candles(self) -> int:
         client = self._client()
@@ -1268,6 +1380,7 @@ class ScannerEngine:
             state.ltp = ltp
             state.day_volume = cumulative_volume if cumulative_volume is not None else state.day_volume
             state.last_tick_time = tick_time
+            state.last_tick_received_at = datetime.now(IST)
             state.status = "live"
             state.error = None
             if state.previous_close:
@@ -1334,9 +1447,10 @@ class ScannerEngine:
         candle = state.completed_candle
         opening_candles = self._opening_window_candles(state.opening_candles)
         opening_pair = self._select_opening_pair(opening_candles)
-        first_opening = opening_pair[1] if opening_pair else None
+        first_opening = opening_pair[1] if opening_pair else self._first_opening_candle(opening_candles)
         second_opening = opening_pair[3] if opening_pair else None
         return {
+            **self._circuit_fields(state),
             "symbol": state.instrument.symbol,
             "name": state.instrument.name,
             "security_id": state.instrument.security_id,
@@ -1383,4 +1497,33 @@ class ScannerEngine:
             "is_fno": state.instrument.symbol in FNO_SYMBOLS,
             "status": state.status,
             "error": state.error,
+        }
+
+    @staticmethod
+    def _circuit_fields(state: StockState) -> dict[str, Any]:
+        now = datetime.now(IST)
+        fresh = (state.circuit_fetched_at is not None
+                 and state.circuit_fetched_at.date() == now.date()
+                 and (now - state.circuit_fetched_at).total_seconds() <= CIRCUIT_REFRESH_SECONDS * 2)
+        upper = state.upper_circuit_limit if fresh else None
+        lower = state.lower_circuit_limit if fresh else None
+        price = _float_or_none(state.ltp)
+        error = state.circuit_error
+        upper_distance = lower_distance = None
+        if not fresh:
+            error = error or "Circuit limits pending or stale"
+        elif price is None or price <= 0:
+            error = "LTP unavailable"
+        elif (upper is not None and price > upper) or (lower is not None and price < lower):
+            error = "LTP outside returned circuit limits; awaiting refreshed quote"
+        else:
+            upper_distance = (upper - price) / price * 100 if upper is not None else None
+            lower_distance = (price - lower) / price * 100 if lower is not None else None
+        return {
+            "upper_circuit_limit": upper,
+            "lower_circuit_limit": lower,
+            "upper_circuit_distance_percent": upper_distance,
+            "lower_circuit_distance_percent": lower_distance,
+            "circuit_fetched_at": state.circuit_fetched_at.isoformat(timespec="seconds") if state.circuit_fetched_at else None,
+            "circuit_error": error,
         }

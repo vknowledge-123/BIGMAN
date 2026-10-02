@@ -405,7 +405,14 @@ table {
 }
 
 .live-table {
-  min-width: 1940px;
+  min-width: 2160px;
+}
+
+.circuit-distance small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .backtest-table {
@@ -447,14 +454,14 @@ th {
 
 .live-table th:nth-child(2),
 .live-table td:nth-child(2),
-.live-table th:nth-child(5),
-.live-table td:nth-child(5),
-.live-table th:nth-child(14),
-.live-table td:nth-child(14),
+.live-table th:nth-child(7),
+.live-table td:nth-child(7),
 .live-table th:nth-child(16),
 .live-table td:nth-child(16),
-.live-table th:nth-child(17),
-.live-table td:nth-child(17) {
+.live-table th:nth-child(18),
+.live-table td:nth-child(18),
+.live-table th:nth-child(19),
+.live-table td:nth-child(19) {
   text-align: left;
 }
 
@@ -609,6 +616,7 @@ tbody tr:hover {
 
 .badge-stack {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }

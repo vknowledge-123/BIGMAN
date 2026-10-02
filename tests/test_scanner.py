@@ -462,7 +462,10 @@ def test_volume_average_cache_succeeds_before_opening_pair_is_complete(tmp_path)
     assert engine.cache_opening_volume_averages() == {"AAA": 200}
     row = engine.snapshot()["stocks"][0]
     assert row["opening_volume_average"] == 200
-    assert row["volume_multiplier"] is None
+    assert row["volume_multiplier"] == 2.5
+    assert row["first_candle_color"] == "green"
+    assert row["second_candle_color"] is None
+    assert row["qualifies_scan"] is False
     assert row["status"] == "volume cached"
 
 
