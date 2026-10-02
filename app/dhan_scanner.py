@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from .fno_symbols import FNO_SYMBOLS
+from .daily_filter import calculate_daily_filter
 from .storage import DATA_DIR, ConfigStore
 
 try:
@@ -171,6 +172,10 @@ class StockState:
     volume_multiplier: float | None = None
     opening_colors_match: bool = False
     possible_candidate: bool = False
+    redwala_gira: bool = False
+    qualifies_scan: bool = False
+    daily_filter: dict[str, Any] | None = None
+    signal_session: date | None = None
     candidate_reason: str | None = None
     status: str = "waiting"
     error: str | None = None
@@ -254,6 +259,8 @@ class ScannerEngine:
         self.store = store
         self.resolver = InstrumentResolver()
         self._lock = threading.RLock()
+        self._history_lock = threading.Lock()
+        self._last_history_call = 0.0
         self._states: dict[str, StockState] = {}
         self._unresolved_symbols: list[str] = []
         self._feed: Any = None
@@ -294,6 +301,7 @@ class ScannerEngine:
                     opening_volume_samples=list(
                         config.opening_volume_cache.get(symbol, {}).get("samples", [])
                     ),
+                    daily_filter=config.opening_volume_cache.get(symbol, {}).get("daily_filter"),
                 )
                 for symbol, instrument in resolved.items()
             }
@@ -398,11 +406,13 @@ class ScannerEngine:
             symbol = state.instrument.symbol
             try:
                 samples, today_candles = self._fetch_opening_volume_history(client, state.instrument)
+                daily_filter = self._fetch_daily_filter(client, state.instrument, datetime.now(IST).date())
                 average = sum(sample["volume"] for sample in samples) / len(samples)
                 entry = {
                     "average": average,
                     "samples": samples,
                     "cached_at": datetime.now(IST).isoformat(timespec="seconds"),
+                    "daily_filter": daily_filter,
                 }
                 cached[symbol] = average
                 cache_entries[symbol] = entry
@@ -411,6 +421,10 @@ class ScannerEngine:
                     if target:
                         target.opening_volume_average = average
                         target.opening_volume_samples = samples
+                        target.daily_filter = daily_filter
+                        target.possible_candidate = False
+                        target.redwala_gira = False
+                        target.qualifies_scan = False
                         target.error = None
                         target.status = "volume cached"
                 if self._select_opening_pair(today_candles) is not None:
@@ -422,6 +436,10 @@ class ScannerEngine:
                     if target:
                         target.error = f"Volume cache failed: {exc}"
                         target.status = "volume cache error"
+                        target.daily_filter = None
+                        target.possible_candidate = False
+                        target.redwala_gira = False
+                        target.qualifies_scan = False
                 if _should_stop_api_batch(exc):
                     fatal_error = str(exc)
                     for remaining in states[index + 1 :]:
@@ -432,13 +450,17 @@ class ScannerEngine:
                             if target:
                                 target.error = errors[remaining_symbol]
                                 target.status = "volume cache skipped"
+                                target.daily_filter = None
+                                target.possible_candidate = False
+                                target.redwala_gira = False
+                                target.qualifies_scan = False
                     break
 
         if cache_entries:
             self.store.update_opening_volume_cache(cache_entries)
 
         with self._lock:
-            self._status = f"Cached 3-day opening volume average for {len(cached)} stock(s)"
+            self._status = f"Cached opening volume average and previous-day check for {len(cached)} stock(s)"
             if errors:
                 self._status += f"; {len(errors)} error(s)"
         if not cached and fatal_error:
@@ -534,6 +556,45 @@ class ScannerEngine:
         gap_percent = abs((candle.open - previous_close) / previous_close * 100)
         return any(abs(gap_percent - band) <= 0.35 for band in CIRCUIT_BANDS)
 
+    def _fetch_daily_filter(self, client: Any, instrument: Instrument, target_date: date) -> dict:
+        response = self._historical_daily_with_retry(
+            client,
+            instrument.security_id,
+            instrument.exchange_segment,
+            instrument.instrument_type,
+            (target_date - timedelta(days=90)).isoformat(),
+            target_date.isoformat(),
+        )
+        return calculate_daily_filter(_extract_data(response), target_date)
+
+    @staticmethod
+    def _qualify_signal(signal: OpeningSignal, daily_filter: dict | None, session: date) -> dict:
+        daily_ready = bool(daily_filter and daily_filter.get("session_date") == session.isoformat())
+        daily_pass = daily_ready and daily_filter.get("passes") is True
+        volume_pass = signal.volume_multiplier >= VOLUME_MULTIPLIER_THRESHOLD
+        red_red = signal.first.color == signal.second.color == "red"
+        open_high = signal.first.open == signal.first.high
+        possible = bool(volume_pass and daily_pass and signal.colors_match)
+        redwala = bool(volume_pass and daily_pass and red_red and open_high)
+        reason = signal.reason
+        if not daily_ready:
+            reason += "; previous-day volume check unavailable for this session"
+        else:
+            reason += (
+                f"; {daily_filter['previous_date']} daily volume {daily_filter['multiplier']:.2f}x"
+                f", close change {daily_filter['percent_change']:.2f}%"
+                f" ({'pass' if daily_pass else 'fail'})"
+            )
+        if red_red:
+            reason += f"; first candle Open = High: {'yes' if open_high else 'no'}"
+        return {
+            "possible_candidate": possible,
+            "redwala_gira": redwala,
+            "qualifies_scan": possible or redwala,
+            "first_open_equals_high": open_high,
+            "candidate_reason": reason,
+        }
+
     def backtest_date(self, target_date: date) -> dict[str, Any]:
         today = datetime.now(IST).date()
         earliest = today - timedelta(days=BACKTEST_MAX_AGE_DAYS)
@@ -558,7 +619,8 @@ class ScannerEngine:
                 time.sleep(1.15)
             try:
                 candles = self._fetch_backtest_history(client, state.instrument, target_date)
-                rows.append(self._build_backtest_row(state.instrument, target_date, candles))
+                daily_filter = self._fetch_daily_filter(client, state.instrument, target_date)
+                rows.append(self._build_backtest_row(state.instrument, target_date, candles, daily_filter))
                 completed_count += 1
             except Exception as exc:
                 first_error = first_error or str(exc)
@@ -594,6 +656,8 @@ class ScannerEngine:
                 for row in rows
             ),
             "candidate_count": sum(row["possible_candidate"] for row in rows),
+            "qualified_count": sum(row.get("qualifies_scan", False) for row in rows),
+            "redwala_count": sum(row.get("redwala_gira", False) for row in rows),
             "error_count": sum(row["error"] is not None for row in rows),
         }
 
@@ -624,6 +688,7 @@ class ScannerEngine:
         instrument: Instrument,
         target_date: date,
         candles: list[Candle],
+        daily_filter: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         samples = self._select_historical_opening_samples(
             candles, target_date, VOLUME_SAMPLE_COUNT
@@ -639,6 +704,7 @@ class ScannerEngine:
 
         average = sum(sample["volume"] for sample in samples) / len(samples)
         signal = self._calculate_opening_signal(target_candles, average)
+        qualification = self._qualify_signal(signal, daily_filter, target_date)
         return {
             "symbol": instrument.symbol,
             "name": instrument.name,
@@ -653,10 +719,12 @@ class ScannerEngine:
             "opening_volume_samples": samples,
             "volume_multiplier": signal.volume_multiplier,
             "opening_colors_match": signal.colors_match,
-            "possible_candidate": signal.possible_candidate,
-            "candidate_reason": signal.reason,
+            **qualification,
+            "daily_filter": daily_filter,
+            "first_candle_open": signal.first.open,
+            "first_candle_high": signal.first.high,
             "is_fno": instrument.symbol in FNO_SYMBOLS,
-            "status": "candidate" if signal.possible_candidate else "checked",
+            "status": "candidate" if qualification["possible_candidate"] else "checked",
             "error": None,
         }
 
@@ -700,6 +768,13 @@ class ScannerEngine:
                 time.sleep(1.15)
             symbol = state.instrument.symbol
             try:
+                session = datetime.now(IST).date()
+                daily_filter = state.daily_filter
+                if not daily_filter or daily_filter.get("session_date") != session.isoformat():
+                    daily_filter = self._fetch_daily_filter(client, state.instrument, session)
+                    with self._lock:
+                        if self._states.get(symbol) is state:
+                            state.daily_filter = daily_filter
                 candles = self._fetch_opening_candles(client, state.instrument)
                 is_candidate = self._apply_opening_candidate(symbol, candles)
                 checked_count += 1
@@ -711,6 +786,8 @@ class ScannerEngine:
                     target = self._states.get(symbol)
                     if target:
                         target.possible_candidate = False
+                        target.redwala_gira = False
+                        target.qualifies_scan = False
                         target.candidate_reason = f"Opening candle check failed: {exc}"
                 if _should_stop_api_batch(exc):
                     for remaining in states[index + 1 :]:
@@ -718,6 +795,8 @@ class ScannerEngine:
                             target = self._states.get(remaining.instrument.symbol)
                             if target:
                                 target.possible_candidate = False
+                                target.redwala_gira = False
+                                target.qualifies_scan = False
                                 target.candidate_reason = f"Opening candle check skipped: {exc}"
                     break
         if states and checked_count == 0 and first_error:
@@ -745,6 +824,8 @@ class ScannerEngine:
                 target.volume_multiplier = None
                 target.opening_colors_match = colors_match
                 target.possible_candidate = False
+                target.redwala_gira = False
+                target.qualifies_scan = False
                 target.candidate_reason = f"{color_reason}; cache volume average first"
                 return False
 
@@ -756,8 +837,12 @@ class ScannerEngine:
             target.today_opening_volume = signal.first.volume
             target.volume_multiplier = signal.volume_multiplier
             target.opening_colors_match = signal.colors_match
-            target.possible_candidate = signal.possible_candidate
-            target.candidate_reason = signal.reason
+            qualification = self._qualify_signal(signal, target.daily_filter, signal.first.start.date())
+            target.signal_session = signal.first.start.date()
+            target.possible_candidate = qualification["possible_candidate"]
+            target.redwala_gira = qualification["redwala_gira"]
+            target.qualifies_scan = qualification["qualifies_scan"]
+            target.candidate_reason = qualification["candidate_reason"]
             return target.possible_candidate
 
     def _calculate_opening_signal(
@@ -804,7 +889,8 @@ class ScannerEngine:
             session_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
         return [
-            candle for candle in self._parse_intraday_candles(response) if candle.end <= now
+            candle for candle in self._parse_intraday_candles(response)
+            if candle.start.date() == today and candle.end <= now
         ]
 
     def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
@@ -818,7 +904,7 @@ class ScannerEngine:
             f"{first_label}/{second_label}: {first_label} {first.color}, "
             f"{second_label} {second.color}"
         )
-        if self._is_opposite_green_red_pair(first.color, second.color):
+        if self._is_candidate_color_pair(first.color, second.color):
             return True, f"Matched {detail}"
         return False, detail
 
@@ -876,8 +962,10 @@ class ScannerEngine:
         state.opening_candles = self._opening_window_candles(list(existing.values()))
 
     @staticmethod
-    def _is_opposite_green_red_pair(first_color: str, second_color: str) -> bool:
-        return {first_color, second_color} == {"green", "red"}
+    def _is_candidate_color_pair(first_color: str, second_color: str) -> bool:
+        return (first_color, second_color) in {
+            ("green", "green"), ("green", "red"), ("red", "green")
+        }
 
     def _parse_intraday_candles(self, response: Any) -> list[Candle]:
         data = _extract_data(response)
@@ -953,7 +1041,7 @@ class ScannerEngine:
         last_error: str | None = None
         for attempt in range(3):
             try:
-                response = client.historical_daily_data(*args)
+                response = self._history_call(client.historical_daily_data, *args)
                 if isinstance(response, dict) and response.get("status") == "failure":
                     last_error = _format_dhan_error(response.get("remarks"))
                     if "DH-904" in last_error or "Rate_Limit" in last_error:
@@ -973,7 +1061,7 @@ class ScannerEngine:
     def _intraday_with_retry(self, client: Any, *args: Any) -> Any:
         last_error: str | None = None
         for attempt in range(3):
-            response = client.intraday_minute_data(*args, interval=1, oi=False)
+            response = self._history_call(client.intraday_minute_data, *args, interval=1, oi=False)
             if isinstance(response, dict) and response.get("status") == "failure":
                 last_error = _format_dhan_error(response.get("remarks"))
                 if "DH-904" in last_error or "Rate_Limit" in last_error:
@@ -983,6 +1071,15 @@ class ScannerEngine:
                     raise RuntimeError(last_error)
             return response
         raise RuntimeError(last_error or "Dhan intraday request failed")
+
+    def _history_call(self, method: Any, *args: Any, **kwargs: Any) -> Any:
+        # Daily and minute requests share one throttle across cache, live and backtest workers.
+        with self._history_lock:
+            delay = 0.3 - (time.monotonic() - self._last_history_call)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_history_call = time.monotonic()
+            return method(*args, **kwargs)
 
     def start(self) -> None:
         if MarketFeed is None or DhanContext is None:
@@ -1050,7 +1147,10 @@ class ScannerEngine:
             return
         with self._lock:
             already_checked = bool(self._states) and all(
-                state.today_opening_volume is not None for state in self._states.values()
+                state.signal_session == now.date()
+                and state.daily_filter is not None
+                and state.daily_filter.get("session_date") == now.date().isoformat()
+                for state in self._states.values()
             )
         if already_checked:
             return
@@ -1090,14 +1190,13 @@ class ScannerEngine:
         return repaired
 
     def _repair_symbol(self, client: Any, instrument: Instrument, start: datetime, end: datetime) -> int:
-        response = client.intraday_minute_data(
+        response = self._intraday_with_retry(
+            client,
             instrument.security_id,
             instrument.exchange_segment,
             instrument.instrument_type,
             start.strftime("%Y-%m-%d %H:%M:%S"),
             (end + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S"),
-            interval=1,
-            oi=False,
         )
         data = _extract_data(response)
         repaired = 0
@@ -1274,6 +1373,12 @@ class ScannerEngine:
             "volume_multiplier": state.volume_multiplier,
             "opening_colors_match": state.opening_colors_match,
             "possible_candidate": state.possible_candidate,
+            "redwala_gira": state.redwala_gira,
+            "qualifies_scan": state.qualifies_scan,
+            "daily_filter": state.daily_filter,
+            "first_candle_open": first_opening.open if first_opening else None,
+            "first_candle_high": first_opening.high if first_opening else None,
+            "first_open_equals_high": bool(first_opening and first_opening.open == first_opening.high),
             "candidate_reason": state.candidate_reason,
             "is_fno": state.instrument.symbol in FNO_SYMBOLS,
             "status": state.status,

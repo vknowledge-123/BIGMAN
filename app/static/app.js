@@ -13,6 +13,7 @@ const els = {
   repairButton: qs("#repairButton"),
   message: qs("#message"),
   unresolved: qs("#unresolved"),
+  scanIssues: qs("#scanIssues"),
   rows: qs("#stockRows"),
   connectionBadge: qs("#connectionBadge"),
   updatedAt: qs("#updatedAt"),
@@ -138,6 +139,22 @@ function setMessage(text, isError = false) {
   els.message.style.color = isError ? "#c92a2a" : "#697386";
 }
 
+function fmtDailyFilter(row) {
+  const daily = row.daily_filter;
+  if (!daily) return '<td>--</td><td>--</td>';
+  const samples = daily.samples.map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`).join(' | ');
+  const detail = `${daily.previous_date}: ${fmtInt(daily.previous_volume)} / ${fmtNumber(daily.average, 2)}; ${samples}`;
+  const exception = daily.price_exception ? ' (price exception)' : '';
+  return `<td title="${escapeHtml(detail)}"><strong>${fmtNumber(daily.multiplier, 2)}x</strong></td>
+    <td title="${escapeHtml(daily.previous_date + exception)}">${fmtNumber(daily.percent_change, 2)}%</td>`;
+}
+
+function fmtSignalBadge(row, reason) {
+  if (row.possible_candidate) return `<span class="candidate-badge" title="${reason}">Possible candidate</span>`;
+  if (row.redwala_gira) return `<span class="candidate-badge redwala-badge" title="${reason}">redwala gira</span>`;
+  return `<span class="muted-small" title="${reason}">--</span>`;
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
@@ -172,10 +189,13 @@ function renderState(state) {
   els.connectionBadge.textContent = state.connected ? "Live Connected" : state.running ? "Connecting" : "Idle";
   els.connectionBadge.className = `badge ${state.connected ? "live" : state.status.toLowerCase().includes("error") ? "error" : "neutral"}`;
   els.updatedAt.textContent = `Updated ${fmtTime(state.updated_at)}`;
-  const visibleStocks = state.stocks.filter((row) => Number(row.volume_multiplier) >= 4);
+  const visibleStocks = state.stocks.filter((row) => row.qualifies_scan === true);
   els.stockCount.textContent = `${visibleStocks.length}/${state.stocks.length}`;
   els.cachedCount.textContent = state.stocks.filter((row) => row.opening_volume_average).length;
   els.unresolved.textContent = state.unresolved_symbols.length ? `Unresolved: ${state.unresolved_symbols.join(", ")}` : "";
+  const failedChecks = state.stocks.filter((row) => row.error || /Opening candle check (failed|skipped)/.test(row.candidate_reason || ""));
+  els.scanIssues.hidden = failedChecks.length === 0;
+  els.scanIssues.textContent = failedChecks.map((row) => `${row.symbol}: ${row.error || row.candidate_reason}`).join("; ");
 
   const top = visibleStocks[0];
   els.topTurnover.textContent = top ? fmtTurnover(top.candle_turnover) : "--";
@@ -183,9 +203,9 @@ function renderState(state) {
 
   if (!visibleStocks.length) {
     const message = state.stocks.length
-      ? "No stocks at 4x opening volume yet"
+      ? "No stocks match both volume checks and candle conditions yet"
       : "No stocks loaded";
-    els.rows.innerHTML = `<tr><td colspan="15" class="empty">${message}</td></tr>`;
+    els.rows.innerHTML = `<tr><td colspan="17" class="empty">${message}</td></tr>`;
     return;
   }
 
@@ -194,9 +214,7 @@ function renderState(state) {
     const statusText = row.error || row.status || "waiting";
     const safeStatus = escapeHtml(statusText);
     const candidateReason = escapeHtml(row.candidate_reason || "Opening candles not checked");
-    const candidateBadge = row.possible_candidate
-      ? `<span class="candidate-badge" title="${candidateReason}">Possible candidate</span>`
-      : `<span class="muted-small" title="${candidateReason}">--</span>`;
+    const candidateBadge = fmtSignalBadge(row, candidateReason);
     const fnoBadge = row.is_fno ? `<span class="fno-badge">F&amp;O</span>` : "";
     const samples = (row.opening_volume_samples || [])
       .map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`)
@@ -218,6 +236,7 @@ function renderState(state) {
         <td>${fmtInt(row.today_opening_volume)}</td>
         <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
         <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
+        ${fmtDailyFilter(row)}
         <td><strong>${fmtTurnover(row.first_candle_turnover)}</strong></td>
         <td><strong>${fmtTurnover(row.candle_turnover)}</strong></td>
         <td>${fmtInt(row.candle_volume)}</td>
@@ -227,7 +246,7 @@ function renderState(state) {
         <td><span class="pill" title="${safeStatus}">${safeStatus}</span></td>
       </tr>
       <tr class="opening-detail-row">
-        <td colspan="15">
+        <td colspan="17">
           <div class="opening-detail-head">
             <span>Opening 10 candles</span>
             <span>${(row.opening_candles || []).length}/10 completed</span>
@@ -252,26 +271,29 @@ function setActiveView(view) {
 
 function renderBacktest(result) {
   els.backtestTested.textContent = result.tested_count;
-  els.backtestFourX.textContent = result.four_x_count;
+  els.backtestFourX.textContent = result.qualified_count;
   els.backtestCandidates.textContent = result.candidate_count;
   els.backtestErrors.textContent = result.error_count;
   els.backtestMessage.style.color = "";
-  els.backtestMessage.textContent = `Backtest ${result.target_date}: ${result.candidate_count} possible candidate(s)`;
-  const visibleStocks = result.stocks.filter((row) => Number(row.volume_multiplier) >= 4);
+  const errors = result.stocks.filter((row) => row.error).map((row) => `${row.symbol}: ${row.error}`);
+  els.backtestMessage.textContent = `Backtest ${result.target_date}: ${result.candidate_count} possible candidate(s), ${result.redwala_count || 0} redwala gira`;
+  if (errors.length) {
+    els.backtestMessage.textContent += `; ${errors.join("; ")}`;
+    els.backtestMessage.style.color = "#c92a2a";
+  }
+  const visibleStocks = result.stocks.filter((row) => row.qualifies_scan === true);
 
   if (!visibleStocks.length) {
     const message = result.stocks.length
-      ? "No stocks at 4x opening volume on this date"
+      ? "No stocks match both volume checks and candle conditions on this date"
       : "No stocks loaded";
-    els.backtestRows.innerHTML = `<tr><td colspan="9" class="empty">${message}</td></tr>`;
+    els.backtestRows.innerHTML = `<tr><td colspan="11" class="empty">${message}</td></tr>`;
     return;
   }
 
   els.backtestRows.innerHTML = visibleStocks.map((row, index) => {
     const reason = escapeHtml(row.candidate_reason || row.error || "No candidate setup");
-    const candidateBadge = row.possible_candidate
-      ? `<span class="candidate-badge" title="${reason}">Possible candidate</span>`
-      : `<span class="muted-small" title="${reason}">--</span>`;
+    const candidateBadge = fmtSignalBadge(row, reason);
     const fnoBadge = row.is_fno ? `<span class="fno-badge">F&amp;O</span>` : "";
     const samples = (row.opening_volume_samples || [])
       .map((sample) => `${sample.date}: ${fmtInt(sample.volume)}`)
@@ -291,6 +313,7 @@ function renderBacktest(result) {
         <td>${fmtInt(row.first_candle_volume)}</td>
         <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
         <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
+        ${fmtDailyFilter(row)}
         <td><div class="badge-stack">${candidateBadge}${fnoBadge}</div></td>
         <td><span class="pill" title="${status}">${status}</span></td>
       </tr>

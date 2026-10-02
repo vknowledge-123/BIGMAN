@@ -66,8 +66,19 @@ h2 {
 }
 
 h1 {
-  font-size: clamp(30px, 4vw, 48px);
+  font-size: 36px;
   line-height: 1;
+}
+
+.scan-issues {
+  color: var(--red);
+  font-size: 13px;
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+
+.backtest-message {
+  overflow-wrap: anywhere;
 }
 
 h2 {
@@ -394,11 +405,11 @@ table {
 }
 
 .live-table {
-  min-width: 1700px;
+  min-width: 1940px;
 }
 
 .backtest-table {
-  min-width: 1120px;
+  min-width: 1360px;
 }
 
 .backtest-table th:nth-child(2),
@@ -407,10 +418,10 @@ table {
 .backtest-table td:nth-child(3),
 .backtest-table th:nth-child(4),
 .backtest-table td:nth-child(4),
-.backtest-table th:nth-child(8),
-.backtest-table td:nth-child(8),
-.backtest-table th:nth-child(9),
-.backtest-table td:nth-child(9) {
+.backtest-table th:nth-child(10),
+.backtest-table td:nth-child(10),
+.backtest-table th:nth-child(11),
+.backtest-table td:nth-child(11) {
   text-align: left;
 }
 
@@ -438,12 +449,12 @@ th {
 .live-table td:nth-child(2),
 .live-table th:nth-child(5),
 .live-table td:nth-child(5),
-.live-table th:nth-child(12),
-.live-table td:nth-child(12),
 .live-table th:nth-child(14),
 .live-table td:nth-child(14),
-.live-table th:nth-child(15),
-.live-table td:nth-child(15) {
+.live-table th:nth-child(16),
+.live-table td:nth-child(16),
+.live-table th:nth-child(17),
+.live-table td:nth-child(17) {
   text-align: left;
 }
 
@@ -600,6 +611,12 @@ tbody tr:hover {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.redwala-badge {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: rgba(201, 42, 42, 0.25);
 }
 
 .fno-badge {

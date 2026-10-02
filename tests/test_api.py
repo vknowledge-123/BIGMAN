@@ -1,8 +1,20 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.main import app, scanner
+from app.storage import ConfigStore
+
+
+@pytest.fixture(autouse=True)
+def isolated_app(monkeypatch, tmp_path):
+    # API tests must never load the user's saved credentials or contact Dhan.
+    store = ConfigStore(tmp_path / "config.json")
+    monkeypatch.setattr("app.main.store", store)
+    monkeypatch.setattr(scanner, "store", store)
+    monkeypatch.setattr(scanner, "_states", {})
+    monkeypatch.setattr(scanner, "load_saved", lambda: None)
 
 
 def test_config_and_state_endpoints_respond() -> None:
@@ -44,7 +56,7 @@ def test_repair_endpoint_checks_opening_candidates(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert calls == {"repair": 1, "candidates": 1}
-    assert "checked opening colors and 4x volume" in response.json()["message"]
+    assert "checked opening colors and both volume rules" in response.json()["message"]
 
 
 def test_cache_volume_endpoint(monkeypatch) -> None:
@@ -54,7 +66,7 @@ def test_cache_volume_endpoint(monkeypatch) -> None:
         response = client.post("/api/cache-volume")
 
     assert response.status_code == 200
-    assert response.json()["message"] == "Cached 3-day opening volume average for 1 stock(s)"
+    assert response.json()["message"] == "Cached opening volume average and previous-day check for 1 stock(s)"
 
 
 def test_backtest_endpoint(monkeypatch) -> None:
@@ -64,6 +76,8 @@ def test_backtest_endpoint(monkeypatch) -> None:
         "tested_count": 0,
         "four_x_count": 0,
         "candidate_count": 0,
+        "qualified_count": 0,
+        "redwala_count": 0,
         "error_count": 0,
     }
     monkeypatch.setattr(scanner, "backtest_date", lambda _target_date: result)

@@ -31,7 +31,30 @@ class ConfigOut(BaseModel):
     cached_volume_count: int
 
 
-class StockRow(BaseModel):
+class DailyVolumeFilter(BaseModel):
+    session_date: str
+    previous_date: str
+    previous_volume: int
+    previous_close: float
+    prior_close: float
+    average: float
+    multiplier: float
+    percent_change: float
+    samples: list[dict]
+    passes: bool
+    price_exception: bool
+
+
+class QualificationFields(BaseModel):
+    daily_filter: DailyVolumeFilter | None = None
+    redwala_gira: bool = False
+    qualifies_scan: bool = False
+    first_candle_open: float | None = None
+    first_candle_high: float | None = None
+    first_open_equals_high: bool = False
+
+
+class StockRow(QualificationFields):
     symbol: str
     name: str | None = None
     security_id: str | None = None
@@ -73,7 +96,7 @@ class StateOut(BaseModel):
     updated_at: str
 
 
-class BacktestRow(BaseModel):
+class BacktestRow(QualificationFields):
     symbol: str
     name: str
     security_id: str
@@ -100,4 +123,6 @@ class BacktestOut(BaseModel):
     tested_count: int
     four_x_count: int
     candidate_count: int
+    qualified_count: int = 0
+    redwala_count: int = 0
     error_count: int

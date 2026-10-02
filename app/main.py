@@ -97,7 +97,7 @@ def cache_volume_average() -> MessageOut:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return MessageOut(
         ok=True,
-        message=f"Cached 3-day opening volume average for {len(cached)} stock(s)",
+        message=f"Cached opening volume average and previous-day check for {len(cached)} stock(s)",
     )
 
 
@@ -136,7 +136,7 @@ def repair_missing() -> MessageOut:
     return MessageOut(
         ok=True,
         message=(
-            f"Repaired {repaired} live candle(s); checked opening colors and 4x volume, "
+            f"Repaired {repaired} live candle(s); checked opening colors and both volume rules, "
             f"{candidates} possible candidate(s)"
         ),
     )

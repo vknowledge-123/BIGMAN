@@ -80,7 +80,7 @@ OIL</textarea>
           </div>
           <div class="metric-grid">
             <div>
-              <span>4x Stocks</span>
+              <span>Qualified Stocks</span>
               <strong id="stockCount">0</strong>
             </div>
             <div>
@@ -130,6 +130,7 @@ OIL</textarea>
       </nav>
 
       <section id="liveView" class="view-pane">
+        <div id="scanIssues" class="scan-issues" role="status" hidden></div>
         <div class="table-wrap">
           <table class="live-table">
             <thead>
@@ -142,6 +143,8 @@ OIL</textarea>
                 <th>Open Volume</th>
                 <th>3D Avg</th>
                 <th>Vol SMA</th>
+                <th>Prev Day SMA</th>
+                <th>Prev Day %</th>
                 <th>1st Turnover</th>
                 <th>1m Turnover</th>
                 <th>1m Volume</th>
@@ -153,7 +156,7 @@ OIL</textarea>
             </thead>
             <tbody id="stockRows">
               <tr>
-                <td colspan="15" class="empty">No stocks at 4x opening volume yet</td>
+                <td colspan="17" class="empty">No qualifying stocks yet</td>
               </tr>
             </tbody>
           </table>
@@ -172,7 +175,7 @@ OIL</textarea>
           </button>
           <div class="backtest-metrics" aria-label="Backtest summary">
             <span>Tested <strong id="backtestTested">0</strong></span>
-            <span>4x Stocks <strong id="backtestFourX">0</strong></span>
+            <span>Qualified <strong id="backtestFourX">0</strong></span>
             <span>Candidates <strong id="backtestCandidates">0</strong></span>
             <span>Errors <strong id="backtestErrors">0</strong></span>
           </div>
@@ -189,13 +192,15 @@ OIL</textarea>
                 <th>Open Volume</th>
                 <th>3D Avg</th>
                 <th>Vol SMA</th>
+                <th>Prev Day SMA</th>
+                <th>Prev Day %</th>
                 <th>Candidate</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="backtestRows">
               <tr>
-                <td colspan="9" class="empty">No backtest run yet</td>
+                <td colspan="11" class="empty">No backtest run yet</td>
               </tr>
             </tbody>
           </table>

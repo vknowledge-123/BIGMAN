@@ -7,9 +7,18 @@ import pytest
 
 from app.dhan_scanner import Candle, Instrument, InstrumentResolver, ScannerEngine, StockState, parse_symbols
 from app.storage import ConfigStore
+from app.daily_filter import calculate_daily_filter
 
 
 IST = ZoneInfo("Asia/Kolkata")
+
+
+def passing_daily(session: date) -> dict:
+    return calculate_daily_filter({
+        "timestamp": [datetime.combine(session - timedelta(days=n), datetime.min.time(), tzinfo=IST).timestamp() for n in (4, 3, 2, 1)],
+        "close": [100, 100, 100, 102],
+        "volume": [1000, 1000, 1000, 2000],
+    }, session)
 
 
 def test_parse_symbols_deduplicates_and_accepts_commas() -> None:
@@ -170,6 +179,7 @@ def test_opening_candidate_badge_green_red(tmp_path) -> None:
     first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 105, 101, 102, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
     assert engine.evaluate_opening_candidates() == 1
     row = engine.snapshot()["stocks"][0]
@@ -194,6 +204,7 @@ def test_opening_candidate_badge_red_green(tmp_path) -> None:
     first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 102, 97, 101, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
     assert engine.evaluate_opening_candidates() == 1
     assert engine.snapshot()["stocks"][0]["possible_candidate"] is True
@@ -211,6 +222,7 @@ def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
     first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 99, 94, 95, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
     assert engine.evaluate_opening_candidates() == 0
     row = engine.snapshot()["stocks"][0]
@@ -218,7 +230,7 @@ def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
     assert "09:15/09:16: 09:15 red, 09:16 red" in row["candidate_reason"]
 
 
-def test_opening_candidate_badge_requires_opposite_colors(tmp_path) -> None:
+def test_opening_candidate_badge_accepts_green_green(tmp_path) -> None:
     store = ConfigStore(tmp_path / "config.json")
     engine = ScannerEngine(store)
     engine._client = lambda: object()  # type: ignore[method-assign]
@@ -230,10 +242,11 @@ def test_opening_candidate_badge_requires_opposite_colors(tmp_path) -> None:
     first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 108, 103, 107, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
-    assert engine.evaluate_opening_candidates() == 0
+    assert engine.evaluate_opening_candidates() == 1
     row = engine.snapshot()["stocks"][0]
-    assert row["possible_candidate"] is False
+    assert row["possible_candidate"] is True
     assert "09:15/09:16: 09:15 green, 09:16 green" in row["candidate_reason"]
 
 
@@ -249,6 +262,7 @@ def test_opening_candidate_badge_handles_914_915_opposite_colors(tmp_path) -> No
     first = Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1000)
     second = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 104, 105, 101, 102, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
     assert engine.evaluate_opening_candidates() == 1
     row = engine.snapshot()["stocks"][0]
@@ -259,6 +273,7 @@ def test_opening_candidate_badge_handles_914_915_opposite_colors(tmp_path) -> No
 def test_opening_candidate_prefers_914_when_all_three_labels_exist(tmp_path) -> None:
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
     state = StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+    state.daily_filter = passing_daily(date(2026, 9, 2))
     with engine._lock:
         engine._states = {"AAA": state}
     candles = [
@@ -416,12 +431,14 @@ def test_cache_opening_volume_average_persists_samples_and_checks_today(tmp_path
         Candle(datetime(2026, 9, 23, 9, 16, tzinfo=IST), 103, 104, 100, 101, 500),
     ]
     engine._fetch_opening_volume_history = lambda *_args: (samples, today)  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(date(2026, 9, 23))
 
     assert engine.cache_opening_volume_averages() == {"AAA": 200}
     row = engine.snapshot()["stocks"][0]
     assert row["volume_multiplier"] == 5
     assert row["possible_candidate"] is True
     assert store.load().opening_volume_cache["AAA"]["samples"] == samples
+    assert store.load().opening_volume_cache["AAA"]["daily_filter"]["passes"] is True
 
 
 def test_volume_average_cache_succeeds_before_opening_pair_is_complete(tmp_path) -> None:
@@ -440,6 +457,7 @@ def test_volume_average_cache_succeeds_before_opening_pair_is_complete(tmp_path)
         Candle(datetime(2026, 9, 23, 9, 15, tzinfo=IST), 100, 102, 99, 101, 500),
     ]
     engine._fetch_opening_volume_history = lambda *_args: (samples, partial_today)  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(date(2026, 9, 23))
 
     assert engine.cache_opening_volume_averages() == {"AAA": 200}
     row = engine.snapshot()["stocks"][0]
@@ -523,6 +541,7 @@ def test_backtest_date_calculates_candidate_and_fno_badge(tmp_path) -> None:
         ]
     )
     engine._fetch_backtest_history = lambda *_args: candles  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(target_date)
 
     result = engine.backtest_date(target_date)
 
@@ -557,6 +576,7 @@ def test_backtest_non_trading_date_returns_stock_error(tmp_path) -> None:
         engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
 
     engine._fetch_backtest_history = lambda *_args: []  # type: ignore[method-assign]
+    engine._fetch_daily_filter = lambda *_args: passing_daily(target_date)
     result = engine.backtest_date(target_date)
 
     assert result["tested_count"] == 0
