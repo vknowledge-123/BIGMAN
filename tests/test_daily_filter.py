@@ -20,6 +20,8 @@ def daily_data(volume=2000, close=102):
     return {
         "timestamp": [datetime.combine(day, datetime.min.time(), tzinfo=IST).timestamp() for day in days],
         "close": [99, 100, 100, close],
+        "high": [101, 102, 102, max(103, close)],
+        "low": [98, 98, 98, min(99.5, close)],
         "volume": [500, 1000, 1500, volume],
     }
 
@@ -46,6 +48,8 @@ def test_daily_ignores_target_and_future_and_sorts_returned_dates():
     for offset in (0, 1):
         data["timestamp"].append(datetime(2026, 10, 1 + offset, tzinfo=IST).timestamp())
         data["close"].append(200)
+        data["high"].append(201)
+        data["low"].append(199)
         data["volume"].append(999999)
     reversed_data = {key: list(reversed(values)) for key, values in data.items()}
     assert calculate_daily_filter(reversed_data, SESSION) == calculate_daily_filter(daily_data(), SESSION)
@@ -72,7 +76,7 @@ def test_invalid_daily_history_is_not_a_pass(problem):
         calculate_daily_filter(data, SESSION)
 
 
-def pair(first_color, second_color, open_high=False, volume=400):
+def pair(first_color, second_color, open_high=False, volume=400_000):
     close = {"green": 101, "red": 99, "doji": 100}
     candles = [
         Candle(datetime(2026, 10, 1, 9, 15, tzinfo=IST), 100,
@@ -107,19 +111,19 @@ def test_live_and_backtest_share_all_qualification_rules(tmp_path, colors, daily
     elif daily_mode == "stale":
         daily["session_date"] = "2026-09-30"
     instrument = Instrument("COALINDIA", "123", "COAL INDIA LTD")
-    state = StockState(instrument, opening_volume_average=100, daily_filter=daily)
+    state = StockState(instrument, opening_volume_average=100_000, daily_filter=daily)
     engine._states = {"COALINDIA": state}
-    candles = pair(first, second, open_high, minute_volume)
+    candles = pair(first, second, open_high, minute_volume * 1000)
     engine._apply_opening_candidate("COALINDIA", candles)
     historical = [
-        Candle(candles[0].start - timedelta(days=n), 100, 102, 98, 100, 100)
+        Candle(candles[0].start - timedelta(days=n), 100, 102, 98, 100, 100_000)
         for n in (1, 2, 3)
     ]
     backtest = engine._build_backtest_row(instrument, SESSION, historical + candles, daily)
     live = engine.snapshot()["stocks"][0]
     volume_pass = minute_volume >= 400 and daily_mode in {"normal", "exception"}
-    candidate = volume_pass and (first, second) in {("green", "green"), ("green", "red"), ("red", "green")}
-    redwala = volume_pass and first == "red" and open_high
+    candidate = volume_pass and first == "green"
+    redwala = first == "red" and open_high
     for row in (live, backtest):
         assert row["possible_candidate"] is candidate
         assert row["redwala_gira"] is redwala
@@ -165,7 +169,7 @@ class FakeDhan:
         self.minute_calls.append((from_date, to_date, interval, oi))
         candles = pair("red", self.second_color, True)
         for day in (25, 28, 30):
-            candles.append(Candle(datetime(2026, 9, day, 9, 15, tzinfo=IST), 100, 102, 99, 101, 100))
+            candles.append(Candle(datetime(2026, 9, day, 9, 15, tzinfo=IST), 100, 102, 99, 101, 100_000))
         data = {key: [getattr(candle, key) for candle in candles] for key in ("open", "high", "low", "close", "volume")}
         data["timestamp"] = [candle.start.timestamp() for candle in candles]
         return {"status": "success", "data": data}
@@ -182,11 +186,13 @@ def test_sdk_cache_restart_repair_backtest_and_api_contract(tmp_path, monkeypatc
     engine._states = {"COALINDIA": StockState(instrument)}
     client = FakeDhan(second_color)
     monkeypatch.setattr(engine, "_client", lambda: client)
-    assert engine.cache_opening_volume_averages() == {"COALINDIA": 100}
+    assert engine.cache_opening_volume_averages() == {"COALINDIA": 100_000}
     assert engine.snapshot()["stocks"][0]["redwala_gira"] is True
     assert len(client.quote_calls) == 1
     persisted = store.load().opening_volume_cache["COALINDIA"]["daily_filter"]
     assert persisted["previous_date"] == "2026-09-30"
+    assert persisted["previous_high"] == 103
+    assert persisted["previous_low"] == 99.5
     assert client.daily_calls[0][1:3] == ("NSE_EQ", "EQUITY")
     assert client.daily_calls[0][-1] == "2026-10-01"  # exclusive toDate
 
@@ -208,13 +214,15 @@ def test_sdk_cache_restart_repair_backtest_and_api_contract(tmp_path, monkeypatc
         assert len(client.quote_calls) == quote_calls_before_backtest
         assert "upper_circuit_limit" not in result["stocks"][0]
         assert result["qualified_count"] == result["redwala_count"] == 1
-        assert result["candidate_count"] == int(second_color == "green")
+        assert result["candidate_count"] == 0
         for row in (live, result["stocks"][0]):
             assert row["redwala_gira"] is True
             assert row["qualifies_scan"] is True
-            assert row["possible_candidate"] is (second_color == "green")
+            assert row["possible_candidate"] is False
             assert row["second_candle_color"] == second_color
             assert row["first_open_equals_high"] is True
+            assert row["previous_day_low_cross"] is True
+            assert row["previous_day_high_cross"] is False
             assert row["daily_filter"] == persisted
         assert len(client.daily_calls) == 2
         assert all(call[2:] == (1, False) for call in client.minute_calls)
@@ -233,7 +241,7 @@ def test_daily_auth_failure_clears_existing_badges_and_stops_batch(tmp_path, mon
     with pytest.raises(RuntimeError, match="DH-901"):
         engine.cache_opening_volume_averages()
     assert len(client.daily_calls) == 1
-    assert len(client.minute_calls) == 1
+    assert len(client.minute_calls) == 0
     assert all(not row["qualifies_scan"] and not row["redwala_gira"] for row in engine.snapshot()["stocks"])
 
 
@@ -241,7 +249,7 @@ def test_stale_daily_check_is_refetched_before_evaluation(tmp_path, monkeypatch,
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
     daily = calculate_daily_filter(daily_data(), SESSION)
     daily["session_date"] = "2026-09-30"
-    state = StockState(Instrument("AAA", "123", "AAA"), opening_volume_average=100, daily_filter=daily)
+    state = StockState(Instrument("AAA", "123", "AAA"), opening_volume_average=100_000, daily_filter=daily)
     engine._states = {"AAA": state}
     client = FakeDhan()
     engine.evaluate_opening_candidates(client)
@@ -251,7 +259,7 @@ def test_stale_daily_check_is_refetched_before_evaluation(tmp_path, monkeypatch,
 
 
 @pytest.mark.parametrize("first_response_delayed", [False, True])
-def test_live_refresh_checks_first_at_916_and_pair_at_917(tmp_path, monkeypatch, first_response_delayed):
+def test_live_refresh_checks_first_at_916_and_retries_without_second(tmp_path, monkeypatch, first_response_delayed):
     clock = [datetime(2026, 10, 1, 9, 15, 30, tzinfo=IST)]
 
     class Clock(datetime):
@@ -260,29 +268,32 @@ def test_live_refresh_checks_first_at_916_and_pair_at_917(tmp_path, monkeypatch,
             return clock[0].astimezone(tz)
 
     class StopEvent:
+        def is_set(self):
+            return False
+
         def wait(self, seconds):
             clock[0] += timedelta(seconds=seconds)
             return False
 
     monkeypatch.setattr("app.dhan_scanner.datetime", Clock)
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
-    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100,
+    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100_000,
                        daily_filter=calculate_daily_filter(daily_data(), SESSION))
     engine._states = {"AAA": state}
     monkeypatch.setattr(engine, "_client", lambda: object())
     calls = []
 
     def fetch(*_args):
-        calls.append((clock[0].strftime("%H:%M"), state.redwala_gira))
-        if clock[0].minute == 16:
-            return [] if first_response_delayed else pair("red", None, True)
-        return pair("red", "green", True)
+        calls.append((clock[0].strftime("%H:%M:%S"), state.redwala_gira))
+        if len(calls) == 1 and first_response_delayed:
+            return []
+        return pair("red", None, True)
 
     monkeypatch.setattr(engine, "_fetch_opening_candles", fetch)
-    engine._refresh_opening_candidates_when_ready(StopEvent())
-    assert calls == [("09:16", False), ("09:17", not first_response_delayed)]
-    assert state.opening_pair_confirmed is True
-    assert state.possible_candidate is True
+    engine._run_opening_confirmation(StopEvent())
+    assert calls == ([("09:16:00", False), ("09:16:02", False)] if first_response_delayed else [("09:16:00", False)])
+    assert state.opening_pair_confirmed is False
+    assert state.possible_candidate is False
     assert state.redwala_gira is True
 
 
@@ -294,7 +305,7 @@ def test_incomplete_first_candle_does_not_qualify(tmp_path, monkeypatch):
 
     monkeypatch.setattr("app.dhan_scanner.datetime", BeforeClose)
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
-    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100,
+    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100_000,
                        daily_filter=calculate_daily_filter(daily_data(), SESSION))
     engine._states = {"AAA": state}
     with pytest.raises(RuntimeError, match="opening candle"):
@@ -304,7 +315,7 @@ def test_incomplete_first_candle_does_not_qualify(tmp_path, monkeypatch):
 
 def test_first_only_914_label_remains_supported(tmp_path):
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
-    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100,
+    state = StockState(Instrument("AAA", "1", "AAA"), opening_volume_average=100_000,
                        daily_filter=calculate_daily_filter(daily_data(), SESSION))
     engine._states = {"AAA": state}
     first = pair("red", None, True)[0]

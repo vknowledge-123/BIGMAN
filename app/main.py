@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from hashlib import sha256
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .dhan_scanner import ScannerEngine, parse_symbols
@@ -16,6 +17,7 @@ from .schemas import (
     MessageOut,
     StateOut,
     SymbolsIn,
+    VolumeFilterSettings,
 )
 from .storage import ConfigStore
 
@@ -40,20 +42,31 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
-def dashboard() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+def dashboard() -> HTMLResponse:
+    # HTML and controls must stay in sync after updates, including Drive copies.
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for filename in ("app.js", "styles.css"):
+        version = sha256((STATIC_DIR / filename).read_bytes()).hexdigest()[:16]
+        html = html.replace(f'"/static/{filename}"', f'"/static/{filename}?v={version}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/config", response_model=ConfigOut)
 def get_config() -> ConfigOut:
     config = store.load()
     return ConfigOut(
+        volume_filters=config.volume_filters,
         has_credentials=bool(config.client_id and config.access_token),
         client_id=config.client_id,
         symbols_text="\n".join(config.symbols),
         cached_close_count=len(config.previous_closes),
         cached_volume_count=len(config.opening_volume_cache),
     )
+
+
+@app.post("/api/volume-filters", response_model=MessageOut)
+def save_volume_filters(payload: VolumeFilterSettings) -> MessageOut:
+    return MessageOut(ok=True, message=scanner.update_volume_filters(payload))
 
 
 @app.post("/api/credentials", response_model=MessageOut)
@@ -97,7 +110,7 @@ def cache_volume_average() -> MessageOut:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return MessageOut(
         ok=True,
-        message=f"Cached opening volume average and previous-day check for {len(cached)} stock(s)",
+        message=f"Cached opening volume average, previous-day check and high/low for {len(cached)} stock(s)",
     )
 
 
@@ -109,6 +122,8 @@ def run_backtest(payload: BacktestIn) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 
 
 @app.post("/api/start", response_model=MessageOut)
@@ -136,7 +151,7 @@ def repair_missing() -> MessageOut:
     return MessageOut(
         ok=True,
         message=(
-            f"Repaired {repaired} live candle(s); checked opening colors and both volume rules, "
+            f"Repaired {repaired} live candle(s); checked first candle and both volume rules, "
             f"{candidates} possible candidate(s)"
         ),
     )

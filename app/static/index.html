@@ -68,7 +68,7 @@ OIL</textarea>
             </button>
             <button id="volumeCacheButton" class="secondary" type="button">
               <i data-lucide="chart-no-axes-combined"></i>
-              Cache Volume Average
+              Cache Volume + Day Levels
             </button>
           </div>
         </form>
@@ -113,6 +113,46 @@ OIL</textarea>
         </section>
       </section>
 
+      <form id="volumeFiltersForm" class="panel volume-filters">
+        <div class="panel-head">
+          <i data-lucide="sliders-horizontal"></i>
+          <h2>Scanner Filters · Live &amp; Backtest</h2>
+        </div>
+        <div class="filter-fields">
+          <label>
+            Previous-day relative volume — maximum (×)
+            <input id="dailyVolumeMax" type="number" min="0" step="any" value="4" required />
+          </label>
+          <label>
+            First-minute relative volume — minimum (×)
+            <input id="minuteVolumeMin" type="number" min="0" step="any" value="4" required />
+          </label>
+          <label>
+            First-candle turnover — greater than (₹ crore)
+            <input id="firstCandleTurnoverMin" type="number" min="0" step="any" value="3" required />
+          </label>
+          <button id="saveVolumeFilters" class="primary" type="submit">Save &amp; Apply</button>
+        </div>
+        <label class="open-cross-toggle">
+          <input id="todayOpenCross" type="checkbox" role="switch" aria-describedby="openCrossHelp" />
+          Today Open Cross
+        </label>
+        <p id="openCrossHelp" class="muted-small">When ON, Possible Candidates and Retest Break require the first candle's open to be strictly above the highest daily close of the previous 5 trading sessions. Applies to Possible Candidates and Retest Break, in Live and Backtest; Redwala is unaffected. Equality fails. OFF skips this condition for those opening setups. Click Save &amp; Apply to use your selection.</p>
+        <p class="muted-small">Day: ratio ≤ your maximum OR previous-day price change ≤ +1%. First minute: volume ≥ your minimum × its 3-session average. Turnover: first-candle volume × close must be strictly greater than your amount (1 crore = ₹1,00,00,000). Decimal values are supported. Saving updates cached results immediately while Live stays connected. Missing data is checked in the background. Rerun backtests to use new settings.</p>
+        <label class="open-cross-toggle">
+          <input id="monthlyFilter" type="checkbox" role="switch" aria-describedby="monthlyFilterHelp" />
+          Monthly Filter
+        </label>
+        <p id="monthlyFilterHelp" class="muted-small">When ON, today's open must be strictly above the highest close of the previous 20 completed trading sessions. Uses daily closes, not candle highs or calendar months.</p>
+        <label class="open-cross-toggle">
+          <input id="lastTwoDaysFilter" type="checkbox" role="switch" aria-describedby="lastTwoDaysFilterHelp" />
+          Last 2 Days Filter
+        </label>
+        <p id="lastTwoDaysFilterHelp" class="muted-small">When ON, two green daily candles (close &gt; open) in the previous two trading sessions add no opening condition. If either candle is red or doji, today's open must be strictly above both closes. Both new filters apply to Possible Candidates and Retest Break in Live and Backtest, alongside existing rules. Redwala is unaffected by either filter. Missing history stays unresolved only for the setups that require it. Click Save &amp; Apply; rerun backtests after changes.</p>
+        <div id="activeVolumeFilters" class="muted-small" role="status">Loading saved filters…</div>
+        <p id="filterChangesStatus" class="muted-small" role="status" aria-live="polite">Run Backtest saves your selected filters before starting. Save &amp; Apply updates Live too.</p>
+      </form>
+
       <section class="message-row">
         <div id="message" class="message">Ready</div>
         <div id="unresolved" class="unresolved"></div>
@@ -129,36 +169,50 @@ OIL</textarea>
         </button>
       </nav>
 
+      <label class="setup-filter">
+        Show scan
+        <select id="setupFilter">
+          <option value="all">All setups</option>
+          <option value="possible">Possible Candidates</option>
+          <option value="redwala">Redwala</option>
+          <option value="retest">Retest Break</option>
+        </select>
+      </label>
+      <p class="muted-small">Redwala: first candle red with open = high, and first-candle turnover strictly above your saved threshold. Daily and first-minute volume filters do not apply. First Candle PDL Cross requires the first candle to open strictly above and close strictly below the previous day's low. PDL Cross on 2nd Candle applies the same strict open/close rule to the completed second candle (9:16 to 9:17). First Candle Low Break appears when a later price trades strictly below the first candle low and remains after a rebound.</p>
+      <p class="muted-small">Retest Break: first candle red, followed only by green candles through the first high break. Confirmed after the breaking candle closes green. Requires the saved volume, turnover and enabled Today Open Cross, Monthly and Last 2 Days conditions. A red/doji before the break invalidates the sequence; no open = high requirement.</p>
+
       <section id="liveView" class="view-pane">
+        <div id="scanSummary" class="message">Prepare stocks before market open, then start Live before 9:15.</div>
+        <p id="liveTurnoverSummary" class="muted-small">First-candle turnover = volume × close. Loading saved threshold…</p>
+        <p class="muted-small">Live results show Possible Candidates and Redwala with high/low breakout badges first, followed by other matches.</p>
         <div id="scanIssues" class="scan-issues" role="status" hidden></div>
-        <div class="table-wrap">
+        <div id="openingLiveResults" class="table-wrap">
           <table class="live-table">
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Symbol</th>
+                <th class="symbol-cell">Stock &amp; Badges</th>
+                <th class="first-turnover-cell">1st Turnover</th>
+                <th>Vol SMA</th>
                 <th>LTP</th>
                 <th>% Change</th>
                 <th title="(Upper circuit - LTP) / LTP x 100">UC Away %</th>
                 <th title="(LTP - Lower circuit) / LTP x 100">LC Away %</th>
-                <th>Open Pair</th>
+                <th>First Candle</th>
                 <th>Open Volume</th>
                 <th>3D Avg</th>
-                <th>Vol SMA</th>
                 <th>Prev Day SMA</th>
                 <th>Prev Day %</th>
-                <th>1st Turnover</th>
                 <th>1m Turnover</th>
                 <th>1m Volume</th>
                 <th>Candle</th>
                 <th>Prev Close</th>
-                <th>Candidate</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="stockRows">
               <tr>
-                <td colspan="19" class="empty">No qualifying stocks yet</td>
+                <td colspan="18" class="empty">No qualifying stocks yet</td>
               </tr>
             </tbody>
           </table>
@@ -166,6 +220,7 @@ OIL</textarea>
       </section>
 
       <section id="backtestView" class="view-pane" hidden>
+        <p id="backtestTurnoverSummary" class="muted-small">Backtests use the saved first-candle turnover threshold when the run starts.</p>
         <div class="backtest-toolbar">
           <label class="date-field">
             Trading date
@@ -183,26 +238,29 @@ OIL</textarea>
           </div>
         </div>
         <div id="backtestMessage" class="message backtest-message">Select a trading date</div>
-        <div class="table-wrap">
+        <details id="backtestIssues" class="scan-issues" hidden>
+          <summary>Backtest data issues</summary>
+          <div id="backtestIssueList"></div>
+        </details>
+        <div id="openingBacktestResults" class="table-wrap">
           <table class="backtest-table">
             <thead>
               <tr>
                 <th>Rank</th>
-                <th>Symbol</th>
+                <th class="symbol-cell">Stock &amp; Badges</th>
                 <th>First Candle</th>
-                <th>Second Candle</th>
                 <th>Open Volume</th>
                 <th>3D Avg</th>
                 <th>Vol SMA</th>
                 <th>Prev Day SMA</th>
                 <th>Prev Day %</th>
-                <th>Candidate</th>
+                <th>1st Turnover</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody id="backtestRows">
               <tr>
-                <td colspan="11" class="empty">No backtest run yet</td>
+                <td colspan="10" class="empty">No backtest run yet</td>
               </tr>
             </tbody>
           </table>

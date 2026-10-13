@@ -7,11 +7,13 @@ const { test } = require('node:test');
 function dashboard() {
   const elements = new Map();
   const context = vm.createContext({
+    AbortController, setTimeout, clearTimeout,
     document: {
       querySelector(selector) {
         if (!elements.has(selector)) elements.set(selector, {
           innerHTML: '', textContent: '', style: {}, hidden: false,
-          addEventListener() {}, setAttribute() {}, classList: { toggle() {} },
+          listeners: {}, addEventListener(name, handler) { this.listeners[name] = handler; },
+          setAttribute() {}, classList: { toggle() {} },
         });
         return elements.get(selector);
       },
@@ -19,6 +21,9 @@ function dashboard() {
     window: { addEventListener() {} },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8'), context);
+  elements.get('#dailyVolumeMax').value = '4';
+  elements.get('#minuteVolumeMin').value = '4';
+  elements.get('#firstCandleTurnoverMin').value = '3';
   return { context, elements };
 }
 
@@ -41,6 +46,297 @@ function fixtures() {
   ];
 }
 
+test('daily history warnings label Redwala as partial and preserve all failure details', () => {
+  const { context, elements } = dashboard();
+  const stocks = [{ ...fixtures()[1], status: 'Partial: daily history unavailable',
+    data_warning: 'Daily history for REDPAIR: DH-905', daily_filter: null },
+    ...Array.from({length: 6}, (_, i) => ({symbol: `FAIL${i}`, error: 'Daily history DH-905', qualifies_scan: false}))];
+  context.result = {stocks, tested_count: 1, error_count: 6, warning_count: 1,
+    redwala_count: 1, candidate_count: 0, qualified_count: 1};
+  vm.runInContext('renderBacktest(result)', context);
+  assert.match(elements.get('#backtestMessage').textContent, /Incomplete backtest: 7 stock/);
+  assert.match(elements.get('#backtestRows').innerHTML, /redwala gira/);
+  assert.match(elements.get('#backtestRows').innerHTML, /Partial: daily history unavailable/);
+  assert.match(elements.get('#backtestIssueList').innerHTML, /FAIL5/);
+  assert.doesNotMatch(elements.get('#backtestMessage').textContent, /FAIL5/);
+  assert.equal(elements.get('#backtestIssues').hidden, false);
+  elements.get('#setupFilter').value = 'possible';
+  vm.runInContext('renderBacktest(result)', context);
+  assert.match(elements.get('#backtestRows').innerHTML, /could not be fully checked/);
+});
+
+test('Redwala low-break badges appear only on Redwala in live and backtest', () => {
+  const { context, elements } = dashboard();
+  const stocks = [
+    { ...fixtures()[1], first_candle_low_break: true, previous_day_low_cross: true },
+    { ...fixtures()[0], first_candle_low_break: true, previous_day_low_cross: true },
+  ];
+  context.state = { stocks, status: 'Live', unresolved_symbols: [] };
+  context.result = { stocks, target_date: '2026-10-01', tested_count: 2,
+    qualified_count: 2, candidate_count: 1, redwala_count: 1, error_count: 0 };
+  vm.runInContext('renderState(state); renderBacktest(result)', context);
+  for (const id of ['#stockRows', '#backtestRows']) {
+    const html = elements.get(id).innerHTML;
+    assert.equal((html.match(/>First Candle Low Break</g) || []).length, 1);
+    assert.equal((html.match(/>First Candle PDL Cross</g) || []).length, 1);
+  }
+});
+
+test('PDL badge requires first-candle cross regardless of later breaks in live and backtest', () => {
+  for (const [cross, broken] of [[false, false], [true, false], [false, true], [true, true]]) {
+    const { context, elements } = dashboard();
+    const stocks = [{ ...fixtures()[1], previous_day_low_cross: cross, previous_day_low_break: broken }];
+    context.state = { stocks, status: 'Live', unresolved_symbols: [] };
+    context.result = { stocks, target_date: '2026-10-01', tested_count: 1,
+      qualified_count: 1, candidate_count: 0, redwala_count: 1, error_count: 0 };
+    vm.runInContext('renderState(state); renderBacktest(result)', context);
+    for (const id of ['#stockRows', '#backtestRows']) {
+      const html = elements.get(id).innerHTML;
+      assert.equal((html.match(/>First Candle PDL Cross</g) || []).length, cross ? 1 : 0);
+      assert.doesNotMatch(html, />Previous Day Low Break</);
+    }
+  }
+});
+
+test('second-candle PDL badge appears only on Redwala in both views', () => {
+  const { context, elements } = dashboard();
+  const stocks = [
+    { ...fixtures()[1], previous_day_low_cross: true, previous_day_low_cross_second_candle: true },
+    { ...fixtures()[0], previous_day_low_cross_second_candle: true },
+  ];
+  context.state = { stocks, status: 'Live', unresolved_symbols: [] };
+  context.result = { stocks, target_date: '2026-10-01', tested_count: 2,
+    qualified_count: 2, candidate_count: 1, redwala_count: 1, error_count: 0 };
+  vm.runInContext('renderState(state); renderBacktest(result)', context);
+  for (const id of ['#stockRows', '#backtestRows']) {
+    const html = elements.get(id).innerHTML;
+    assert.equal((html.match(/>PDL Cross on 2nd Candle</g) || []).length, 1);
+    assert.equal((html.match(/>First Candle PDL Cross</g) || []).length, 1);
+  }
+});
+
+test('live breakout badges sort first, preserve other matches, and update as badges arrive', () => {
+  const { context, elements } = dashboard();
+  const stocks = [
+    { ...fixtures()[0], symbol: 'PLAIN', first_open_equals_low: true },
+    { ...fixtures()[1], symbol: 'RED_PDL', previous_day_low_cross: true },
+    { ...fixtures()[0], symbol: 'HIGH_BREAK', first_candle_high_break: true },
+    { ...fixtures()[1], symbol: 'PLAIN_RED' },
+  ];
+  context.state = { stocks, status: 'Live', unresolved_symbols: [] };
+  const symbols = () => [...elements.get('#stockRows').innerHTML.matchAll(/<strong>(PLAIN|RED_PDL|HIGH_BREAK|PLAIN_RED)<\/strong>/g)].map(match => match[1]);
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(), ['RED_PDL', 'HIGH_BREAK', 'PLAIN', 'PLAIN_RED']);
+  assert.deepEqual(stocks.map(row => row.symbol), ['PLAIN', 'RED_PDL', 'HIGH_BREAK', 'PLAIN_RED']);
+  stocks[0].previous_day_high_cross = true;
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(), ['PLAIN', 'RED_PDL', 'HIGH_BREAK', 'PLAIN_RED']);
+  elements.get('#setupFilter').value = 'redwala';
+  stocks[1].previous_day_low_cross = false;
+  stocks[3].previous_day_low_cross_second_candle = true;
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(), ['PLAIN_RED', 'RED_PDL']);
+  assert.equal(vm.runInContext('hasBreakoutBadge({redwala_gira:true,first_candle_low_break:true})', context), true);
+  assert.equal(vm.runInContext('hasBreakoutBadge({possible_candidate:true,first_candle_high_break:true,awaiting_confirmation:true})', context), false);
+});
+
+test('backtest sends opening scan mode', async () => {
+  const { context, elements } = dashboard();
+  elements.get('#setupFilter').value = 'redwala';
+  elements.get('#backtestDate').value = '2026-10-01';
+  let backtests = 0;
+  context.fetch = async (url, options) => {
+    if (url === '/api/volume-filters') return {ok: true, json: async () => ({message: 'Saved'})};
+    if (url === '/api/state') return {ok: true, json: async () => ({stocks: [], unresolved_symbols: []})};
+    assert.equal(url, '/api/backtest');
+    backtests++;
+    assert.deepEqual(JSON.parse(options.body), { target_date: '2026-10-01', scan_type: 'opening' });
+    return { ok: true, json: async () => ({ scan_type: 'opening', stocks: [], tested_count: 0,
+      qualified_count: 0, candidate_count: 0, error_count: 0 }) };
+  };
+  await vm.runInContext('runBacktest()', context);
+  assert.equal(backtests, 1);
+  assert.equal(elements.get('#backtestButton').disabled, false);
+});
+
+test('backtest waits for selected monthly and two-day filters to save before running', async () => {
+  const {context, elements} = dashboard();
+  elements.get('#backtestDate').value = '2026-10-09';
+  elements.get('#monthlyFilter').checked = true;
+  elements.get('#lastTwoDaysFilter').checked = true;
+  elements.get('#volumeFiltersForm').listeners.change();
+  assert.match(elements.get('#filterChangesStatus').textContent, /Unapplied changes/);
+  let finishSave;
+  let sentSettings;
+  let backtests = 0;
+  context.fetch = async (url, options) => {
+    if (url === '/api/volume-filters') {
+      sentSettings = JSON.parse(options.body);
+      return new Promise(resolve => { finishSave = resolve; });
+    }
+    if (url === '/api/state') return {ok: true, json: async () => ({stocks: [], unresolved_symbols: []})};
+    assert.equal(url, '/api/backtest');
+    backtests++;
+    return {ok: true, json: async () => ({stocks: [], volume_filters: sentSettings,
+      target_date: '2026-10-09', tested_count: 0, qualified_count: 0, candidate_count: 0, error_count: 0})};
+  };
+  const pending = vm.runInContext('runBacktest()', context);
+  assert.equal(backtests, 0);
+  assert.equal(sentSettings.monthly_filter, true);
+  assert.equal(sentSettings.last_two_days_filter, true);
+  assert.equal(elements.get('#monthlyFilter').disabled, true);
+  await vm.runInContext('runBacktest()', context); // Ignore double clicks.
+  finishSave({ok: true, json: async () => ({message: 'Saved'})});
+  await pending;
+  assert.equal(backtests, 1);
+  assert.equal(elements.get('#monthlyFilter').disabled, false);
+  assert.match(elements.get('#filterChangesStatus').textContent, /Selected filters are saved/);
+  assert.match(elements.get('#backtestMessage').textContent, /Monthly Filter ON/);
+  assert.match(elements.get('#backtestMessage').textContent, /Last 2 Days Filter ON/);
+});
+
+test('failed or timed-out filter save never starts a backtest', async () => {
+  for (const timeout of [false, true]) {
+    const {context, elements} = dashboard();
+    elements.get('#backtestDate').value = '2026-10-09';
+    elements.get('#monthlyFilter').checked = true;
+    let backtests = 0;
+    context.fetch = async url => {
+      if (url === '/api/backtest') backtests++;
+      throw Object.assign(new Error('Save failed'), {name: timeout ? 'AbortError' : 'Error'});
+    };
+    await vm.runInContext('runBacktest()', context);
+    assert.equal(backtests, 0);
+    assert.match(elements.get('#backtestMessage').textContent, /Backtest not started/);
+    assert.equal(elements.get('#monthlyFilter').checked, true);
+    assert.equal(elements.get('#monthlyFilter').disabled, false);
+    assert.equal(elements.get('#backtestButton').disabled, false);
+  }
+});
+
+test('invalid settings and an in-progress save block backtests', async () => {
+  const {context, elements} = dashboard();
+  elements.get('#backtestDate').value = '2026-10-09';
+  let requests = 0;
+  context.fetch = async () => { requests++; throw new Error('Unexpected request'); };
+  elements.get('#minuteVolumeMin').value = '0';
+  await vm.runInContext('runBacktest()', context);
+  assert.match(elements.get('#backtestMessage').textContent, /greater than zero/);
+  elements.get('#minuteVolumeMin').value = '4';
+  elements.get('#saveVolumeFilters').disabled = true;
+  await vm.runInContext('runBacktest()', context);
+  assert.match(elements.get('#backtestMessage').textContent, /still saving/);
+  assert.equal(requests, 0);
+});
+
+test('turnover column, high-break badge and Retest Break scan render in both views', () => {
+  const { context, elements } = dashboard();
+  const rows = [
+    { ...fixtures()[0], first_candle_turnover: 35000000, first_candle_high_break: true },
+    { ...fixtures()[0], symbol: 'RETEST', possible_candidate: false, retest_break: true,
+      retest_break_at: '2026-10-01T09:22:00+05:30', retest_reason: 'All green; high broken', first_candle_turnover: 45000000 },
+  ];
+  context.state = { stocks: rows, status: 'Live', unresolved_symbols: [] };
+  context.result = { stocks: rows, target_date: '2026-10-01', tested_count: 2,
+    qualified_count: 2, candidate_count: 1, error_count: 0, retest_count: 1 };
+  vm.runInContext('renderState(state); renderBacktest(result)', context);
+  for (const key of ['#stockRows', '#backtestRows']) {
+    assert.match(elements.get(key).innerHTML, /First Candle High Break/);
+    assert.match(elements.get(key).innerHTML, /Retest Break/);
+    assert.match(elements.get(key).innerHTML, /4\.50 Cr/);
+  }
+  elements.get('#setupFilter').value = 'retest';
+  vm.runInContext('renderState(state); renderBacktest(result)', context);
+  for (const key of ['#stockRows', '#backtestRows']) {
+    assert.match(elements.get(key).innerHTML, /RETEST/);
+    assert.doesNotMatch(elements.get(key).innerHTML, /GREENPAIR|First Candle High Break/);
+  }
+  assert.equal((elements.get('#backtestRows').innerHTML.match(/<td(?:>| )/g) || []).length, 10);
+});
+
+test('filter summary reports the open-cross toggle and exact comparison', () => {
+  const { context } = dashboard();
+  assert.match(vm.runInContext('filterDescription()', context), /Today Open Cross OFF/);
+  assert.match(vm.runInContext('filterDescription({today_open_cross: true})', context), /Today Open Cross ON \(Candidates and Retest Break: open > highest close of prior 5 sessions\)/);
+});
+
+test('new opening filters show exact rules in live summaries', () => {
+  const { context } = dashboard();
+  assert.match(vm.runInContext('filterDescription()', context), /Monthly Filter OFF; Last 2 Days Filter OFF/);
+  context.settings = {monthly_filter: true, last_two_days_filter: true};
+  for (const fn of ['filterDescription']) {
+    const description = vm.runInContext(`${fn}(settings)`, context);
+    assert.match(description, /Monthly Filter ON \(open > highest close of prior 20 trading sessions\)/);
+    assert.match(description, /both green: no extra condition; red\/doji: open > both prior closes/);
+    assert.match(description, /Redwala uses only turnover plus a red first candle with open = high; volume and opening filters do not apply/);
+  }
+});
+
+test('filter form submits both toggles and restores saved selections', async () => {
+  const { context, elements } = dashboard();
+  context.fetch = async (url) => ({ok: true, json: async () => ({
+    volume_filters: {monthly_filter: true, last_two_days_filter: true},
+  })});
+  await vm.runInContext('refreshConfig()', context);
+  assert.equal(elements.get('#monthlyFilter').checked, true);
+  assert.equal(elements.get('#lastTwoDaysFilter').checked, true);
+  elements.get('#monthlyFilter').checked = false;
+  vm.runInContext('saveFilterSettings = settings => { globalThis.submitted = settings; }', context);
+  elements.get('#volumeFiltersForm').listeners.submit({preventDefault() {}});
+  assert.equal(context.submitted.monthly_filter, false);
+  assert.equal(context.submitted.last_two_days_filter, true);
+});
+
+test('turnover captions use live settings and preserve each backtest threshold', () => {
+  const { context, elements } = dashboard();
+  context.state = { stocks: [fixtures()[2]], status: 'Idle', unresolved_symbols: [],
+    volume_filters: { first_candle_turnover_min: 12500000 } };
+  vm.runInContext('renderState(state)', context);
+  assert.match(elements.get('#liveTurnoverSummary').textContent, /₹1\.25 crore/);
+  assert.match(elements.get('#stockRows').innerHTML, /₹1\.25 crore/);
+  context.result = { stocks: [fixtures()[2]], target_date: '2026-10-01', tested_count: 1,
+    qualified_count: 0, candidate_count: 0, error_count: 0,
+    volume_filters: { first_candle_turnover_min: 50000000 } };
+  vm.runInContext('renderBacktest(result)', context);
+  assert.match(elements.get('#backtestTurnoverSummary').textContent, /₹5 crore/);
+  assert.match(elements.get('#backtestMessage').textContent, /₹5 crore/);
+  assert.match(elements.get('#backtestRows').innerHTML, /₹5 crore/);
+});
+
+test('save completes without waiting for state polling or overwriting newer edits', async () => {
+  const { context, elements } = dashboard();
+  let resolveState;
+  let stateCalls = 0;
+  context.fetch = async (url) => {
+    if (url === '/api/volume-filters') return { ok: true, json: async () => ({ message: 'Applied' }) };
+    assert.equal(url, '/api/state');
+    stateCalls++;
+    return new Promise((resolve) => { resolveState = resolve; });
+  };
+  elements.get('#minuteVolumeMin').value = '8';
+  await vm.runInContext('saveFilterSettings({daily_volume_max: 4, minute_volume_min: 2, first_candle_turnover_min: 30000000})', context);
+  assert.equal(elements.get('#saveVolumeFilters').disabled, false);
+  assert.equal(elements.get('#saveVolumeFilters').textContent, 'Save & Apply');
+  assert.equal(elements.get('#minuteVolumeMin').value, '8');
+  assert.match(elements.get('#activeVolumeFilters').textContent, /first minute ≥ 2×/);
+  const firstPoll = vm.runInContext('refreshState()', context);
+  assert.equal(firstPoll, vm.runInContext('refreshState()', context));
+  assert.equal(stateCalls, 1);
+  resolveState({ ok: true, json: async () => ({ stocks: [], status: 'Idle', unresolved_symbols: [] }) });
+  await firstPoll;
+});
+
+test('save timeout unlocks controls and explains uncertain persistence', async () => {
+  const { context, elements } = dashboard();
+  context.setTimeout = (callback) => setTimeout(callback, 1);
+  context.fetch = (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(Object.assign(new Error('Timed out'), { name: 'AbortError' })));
+  });
+  await vm.runInContext('saveFilterSettings({daily_volume_max: 4, minute_volume_min: 4, first_candle_turnover_min: 30000000})', context);
+  assert.equal(elements.get('#saveVolumeFilters').disabled, false);
+  assert.match(elements.get('#message').textContent, /Settings may have been saved/);
+});
+
 test('live table displays only qualified rows with correct badges and daily columns', () => {
   const { context, elements } = dashboard();
   context.state = { stocks: fixtures(), status: 'Idle', unresolved_symbols: [] };
@@ -56,7 +352,7 @@ test('live table displays only qualified rows with correct badges and daily colu
   assert.equal(elements.get('#stockCount').textContent, '2/4');
   assert.match(elements.get('#scanIssues').textContent, /APIERROR: Daily history missing/);
   assert.equal(elements.get('#scanIssues').hidden, false);
-  assert.equal((html.match(/<td(?:>| )/g) || []).length, 40); // 19 cells + one detail row per stock
+  assert.equal((html.match(/<td(?:>| )/g) || []).length, 38); // 18 cells + one detail row per stock
 });
 
 test('backtest filtering matches live and preserves failed-check diagnostics', () => {
@@ -73,7 +369,7 @@ test('backtest filtering matches live and preserves failed-check diagnostics', (
   assert.equal(elements.get('#backtestFourX').textContent, 2);
   assert.match(elements.get('#backtestMessage').textContent, /1 redwala gira/);
   assert.match(elements.get('#backtestMessage').textContent, /APIERROR: Daily history missing/);
-  assert.equal((html.match(/<td(?:>| )/g) || []).length, 22);
+  assert.equal((html.match(/<td(?:>| )/g) || []).length, 20);
 });
 
 test('empty results use updated table spans and escape provider errors', () => {
@@ -81,29 +377,33 @@ test('empty results use updated table spans and escape provider errors', () => {
   context.state = { stocks: [], status: 'Idle', unresolved_symbols: [] };
   context.result = { stocks: [], qualified_count: 0, candidate_count: 0, error_count: 0 };
   vm.runInContext('renderState(state); renderBacktest(result)', context);
-  assert.match(elements.get('#stockRows').innerHTML, /colspan="19"/);
-  assert.match(elements.get('#backtestRows').innerHTML, /colspan="11"/);
+  assert.match(elements.get('#stockRows').innerHTML, /colspan="18"/);
+  assert.match(elements.get('#backtestRows').innerHTML, /colspan="10"/);
   context.state.stocks = [{ ...fixtures()[0], candidate_reason: '<script>alert(1)</script>' }];
   vm.runInContext('renderState(state)', context);
   assert.doesNotMatch(elements.get('#stockRows').innerHTML, /<script>/);
 });
 
-test('both setup badges remain visible when a red/green stock qualifies for both', () => {
+test('first-candle setup and crossing badges appear in live and backtest without a second candle', () => {
   const { context, elements } = dashboard();
-  const row = { ...fixtures()[0], first_candle_color: 'red', second_candle_color: 'green', redwala_gira: true };
-  context.state = { stocks: [row], status: 'Idle', unresolved_symbols: [] };
-  context.result = { stocks: [row], qualified_count: 1, candidate_count: 1, redwala_count: 1, error_count: 0 };
+  const green = { ...fixtures()[0], second_candle_color: null, first_open_equals_low: true, previous_day_high_cross: true };
+  const red = { ...fixtures()[1], second_candle_color: null, first_candle_color: 'red', previous_day_low_cross: true };
+  context.state = { stocks: [green, red], status: 'Idle', unresolved_symbols: [] };
+  context.result = { stocks: [green, red], qualified_count: 2, candidate_count: 1, redwala_count: 1, error_count: 0 };
   vm.runInContext('renderState(state); renderBacktest(result)', context);
   for (const id of ['#stockRows', '#backtestRows']) {
     assert.match(elements.get(id).innerHTML, /Possible candidate/);
     assert.match(elements.get(id).innerHTML, /redwala gira/);
     assert.match(elements.get(id).innerHTML, /F&amp;O/);
+    assert.match(elements.get(id).innerHTML, /open ==low/);
+    assert.match(elements.get(id).innerHTML, /previous day high cross/);
+    assert.match(elements.get(id).innerHTML, /First Candle PDL Cross/);
+    assert.doesNotMatch(elements.get(id).innerHTML, /2: waiting/);
   }
-  context.state.stocks[0] = { ...row, possible_candidate: false, second_candle_color: null };
+  context.state.stocks = [{ ...red, first_open_equals_low: true, previous_day_high_cross: true }];
   vm.runInContext('renderState(state)', context);
   assert.match(elements.get('#stockRows').innerHTML, /redwala gira/);
-  assert.match(elements.get('#stockRows').innerHTML, /2: waiting/);
-  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Possible candidate/);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Possible candidate|open ==low|previous day high cross/);
 });
 
 test('circuit distances display percentage, zero at the limit and missing states', () => {
@@ -119,4 +419,23 @@ test('circuit distances display percentage, zero at the limit and missing states
   const missing = vm.runInContext('fmtCircuitDistance(row, "upper")', context);
   assert.match(missing, /<strong>--<\/strong>/);
   assert.doesNotMatch(missing, /<script>/);
+});
+
+test('live matches are visible as awaiting confirmation without final badges or confirmed counts', () => {
+  const { context, elements } = dashboard();
+  context.state = { stocks: [{ ...fixtures()[0], qualifies_scan: false, possible_candidate: false,
+    preparation_status: 'ready', confirmation_status: 'awaiting_confirmation', awaiting_confirmation: true,
+    provisional_setup: 'Possible candidate', first_open_equals_low: true, previous_day_high_cross: true,
+  }], status: 'Live', unresolved_symbols: [] };
+  vm.runInContext('renderState(state)', context);
+  assert.match(elements.get('#stockRows').innerHTML, /Possible candidate - Awaiting confirmation/);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /open ==low|previous day high cross/);
+  assert.equal(elements.get('#stockCount').textContent, '0/1');
+  assert.match(elements.get('#scanSummary').textContent, /Awaiting confirmation 1/);
+  Object.assign(context.state.stocks[0], { qualifies_scan: true, possible_candidate: true,
+    confirmation_status: 'confirmed', awaiting_confirmation: false });
+  vm.runInContext('renderState(state)', context);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Awaiting confirmation/);
+  assert.match(elements.get('#stockRows').innerHTML, /previous day high cross/);
+  assert.equal(elements.get('#stockCount').textContent, '1/1');
 });

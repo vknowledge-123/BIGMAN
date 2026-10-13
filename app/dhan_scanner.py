@@ -6,6 +6,7 @@ import logging
 import math
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, time as dt_time, timedelta
 from pathlib import Path
@@ -15,7 +16,10 @@ from zoneinfo import ZoneInfo
 import requests
 
 from .fno_symbols import FNO_SYMBOLS
-from .daily_filter import calculate_daily_filter
+from .daily_filter import apply_daily_volume_limit, calculate_daily_filter
+from .schemas import VolumeFilterSettings
+from .opening_filters import evaluate as evaluate_opening_filters, missing_history as missing_opening_history
+from .opening_patterns import first_high_broken, retest_sequence
 from .storage import DATA_DIR, ConfigStore
 
 try:
@@ -31,12 +35,11 @@ IST = ZoneInfo("Asia/Kolkata")
 SCRIP_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
 SCRIP_MASTER_PATH = DATA_DIR / "api-scrip-master.csv"
 SCRIP_INDEX_PATH = DATA_DIR / "nse-equity-instruments.json"
-OPENING_CANDLE_PAIRS = (("09:14", "09:15"), ("09:15", "09:16"))
 VOLUME_SAMPLE_COUNT = 3
-VOLUME_MULTIPLIER_THRESHOLD = 4.0
 BACKTEST_MAX_AGE_DAYS = 60
 CIRCUIT_BANDS = (2.0, 5.0, 10.0, 20.0)
 CIRCUIT_REFRESH_SECONDS = 60
+HISTORY_REQUEST_SPACING = 0.23
 
 
 def parse_symbols(raw: str) -> list[str]:
@@ -148,8 +151,8 @@ class OpeningSignal:
     first: Candle
     second_label: str
     second: Candle | None
-    volume_average: float
-    volume_multiplier: float
+    volume_average: float | None
+    volume_multiplier: float | None
     colors_match: bool
     possible_candidate: bool
     reason: str
@@ -179,6 +182,30 @@ class StockState:
     daily_filter: dict[str, Any] | None = None
     signal_session: date | None = None
     opening_pair_confirmed: bool = False
+    confirmed_opening_candle: Candle | None = None
+    confirmed_session_candles: dict[datetime, Candle] = field(default_factory=dict)
+    post_opening_trough: float | None = None
+    post_opening_trough_session: date | None = None
+    post_opening_peak: float | None = None
+    post_opening_peak_session: date | None = None
+    retest_break: bool = False
+    retest_break_at: str | None = None
+    retest_status: str = "waiting"
+    retest_reason: str | None = None
+    retest_attempt_at: datetime | None = None
+    retest_checked_through: datetime | None = None
+    volume_session: date | None = None
+    preparation_status: str = "unresolved"
+    confirmation_status: str = "pending"
+    opening_metadata_pending: bool = False
+    provisional_setup: str | None = None
+    feed_baseline_session: date | None = None
+    feed_incomplete: bool = True
+    opening_first_tick: datetime | None = None
+    opening_last_tick: datetime | None = None
+    opening_boundary_seen: bool = False
+    feed_baseline_volume: int | None = None
+    opening_boundary_volume: int | None = None
     upper_circuit_limit: float | None = None
     lower_circuit_limit: float | None = None
     circuit_fetched_at: datetime | None = None
@@ -268,6 +295,14 @@ class ScannerEngine:
         self.resolver = InstrumentResolver()
         self._lock = threading.RLock()
         self._history_lock = threading.Lock()
+        self._history_condition = threading.Condition()
+        self._priority_workers = 0
+        self._request_context = threading.local()
+        self._volume_filters = store.load().volume_filters
+        self._settings_lock = threading.Lock()
+        self._opening_finished = True
+        self._preparation_lock = threading.Lock()
+        self._security_symbols: dict[str, str] = {}
         self._last_history_call = 0.0
         self._quote_lock = threading.Lock()
         self._last_quote_call = 0.0
@@ -279,12 +314,16 @@ class ScannerEngine:
         self._feed_thread: threading.Thread | None = None
         self._candidate_thread: threading.Thread | None = None
         self._candidate_stop = threading.Event()
+        self._candidate_refresh = threading.Event()
+        self._subscription_refresh = threading.Event()
+        self._subscribed_symbols: set[str] = set()
         self._running = False
         self._connected = False
         self._status = "Idle"
 
     def load_saved(self) -> None:
         config = self.store.load()
+        self._volume_filters = config.volume_filters
         if config.symbols:
             try:
                 self.prepare_symbols(config.symbols)
@@ -294,32 +333,122 @@ class ScannerEngine:
                     self._unresolved_symbols = config.symbols
                     self._status = f"Could not load saved symbols: {exc}"
                 return
-            with self._lock:
-                for symbol, close in config.previous_closes.items():
-                    if symbol in self._states:
-                        self._states[symbol].previous_close = close
 
     def prepare_symbols(self, symbols: list[str]) -> list[str]:
         resolved, unresolved = self.resolver.resolve(symbols)
         config = self.store.load()
+        session = datetime.now(IST).date()
+        was_running = self._running
+        if was_running:
+            self.stop()
         with self._lock:
-            self._states = {
-                symbol: StockState(
-                    instrument=instrument,
-                    previous_close=config.previous_closes.get(symbol),
-                    opening_volume_average=_float_or_none(
-                        config.opening_volume_cache.get(symbol, {}).get("average")
-                    ),
-                    opening_volume_samples=list(
-                        config.opening_volume_cache.get(symbol, {}).get("samples", [])
-                    ),
-                    daily_filter=config.opening_volume_cache.get(symbol, {}).get("daily_filter"),
-                )
-                for symbol, instrument in resolved.items()
-            }
+            previous = self._states
+            self._states = {}
+            for symbol, instrument in resolved.items():
+                state = previous.get(symbol)
+                if state and self._daily_ready(state, session):
+                    self._states[symbol] = state
+                    continue
+                entry = config.opening_volume_cache.get(symbol, {})
+                daily = apply_daily_volume_limit(entry.get("daily_filter"), self.volume_filters.daily_volume_max)
+                volume_day = entry.get("volume_session") or str(entry.get("cached_at", ""))[:10]
+                average = _float_or_none(entry.get("average"))
+                fresh = (volume_day == session.isoformat() and average is not None and average > 0
+                         and len(entry.get("samples", [])) == 3)
+                state = StockState(instrument=instrument, previous_close=config.previous_closes.get(symbol),
+                                   daily_filter=daily,
+                                   opening_volume_average=_float_or_none(entry.get("average")) if fresh else None,
+                                   opening_volume_samples=list(entry.get("samples", [])) if fresh else [],
+                                   volume_session=session if fresh else None)
+                if self._daily_ready(state, session):
+                    state.previous_close = daily["previous_close"]
+                    state.preparation_status = ("excluded" if not daily["passes"] else
+                                                "ready" if self._volume_ready(state, session) else "needs_volume")
+                    if not daily["passes"]:
+                        state.confirmation_status = "pending"
+                        state.signal_session = session
+                self._states[symbol] = state
+            self._security_symbols = {state.instrument.security_id: symbol for symbol, state in self._states.items()}
             self._unresolved_symbols = unresolved
-            self._status = f"Loaded {len(resolved)} symbol(s)"
+            self._status = f"Loaded {len(resolved)} symbol(s)" + ("; restart Live for the updated list" if was_running else "")
         return unresolved
+
+    @property
+    def volume_filters(self) -> VolumeFilterSettings:
+        return getattr(self._request_context, "volume_filters", self._volume_filters)
+
+    def update_volume_filters(self, settings: VolumeFilterSettings) -> str:
+        with self._settings_lock:
+            self.store.update_volume_filters(settings)
+            session = datetime.now(IST).date()
+            with self._lock:
+                self._volume_filters = settings
+                for state in self._states.values():
+                    state.retest_break = False
+                    state.retest_status = "waiting"
+                    state.retest_break_at = None
+                    state.retest_attempt_at = None
+                    state.retest_reason = None
+                    state.daily_filter = apply_daily_volume_limit(state.daily_filter, settings.daily_volume_max)
+                    state.possible_candidate = state.redwala_gira = state.retest_break = state.qualifies_scan = False
+                    state.provisional_setup = None
+                    state.confirmation_status = "pending"
+                    state.candidate_reason = None
+                    state.status = "Filters updated; awaiting opening check"
+                    state.preparation_status = "unresolved"
+                    if self._daily_ready(state, session):
+                        state.preparation_status = ("excluded" if not state.daily_filter["passes"] else
+                                                    "ready" if self._volume_ready(state, session) else "needs_volume")
+                        if not state.daily_filter["passes"]:
+                            state.status = "Daily filter failed for Candidates/Retest; Redwala still checked"
+                    first = state.confirmed_opening_candle
+                    if first and first.start.date() == session:
+                        self._apply_opening_candidate(state.instrument.symbol, [first])
+                # Cached raw inputs remain valid. Derived decisions are recalculated
+                # on load; do not rewrite the entire cache while holding the feed lock.
+                was_running = self._running
+                if was_running:
+                    self._candidate_refresh.set()
+                    self._subscription_refresh.set()
+            message = (f"Filters saved: previous day <= {settings.daily_volume_max:g}x "
+                       f"or price change <= +1%; first minute >= {settings.minute_volume_min:g}x; "
+                       f"first-candle turnover > INR {settings.first_candle_turnover_min / 10_000_000:g} crore. "
+                       f"Today Open Cross {'ON' if settings.today_open_cross else 'OFF'}. "
+                       f"Monthly Filter {'ON' if settings.monthly_filter else 'OFF'}; "
+                       f"Last 2 Days Filter {'ON' if settings.last_two_days_filter else 'OFF'}. "
+                       "Applied to Live and future backtests.")
+            if was_running:
+                message += " Live connection kept running; missing data is checked in the background."
+            else:
+                message += " Cache Volume + Day Levels prepares any newly eligible stocks."
+            return message
+
+    def _refresh_filter_subscriptions(self, feed: Any, stop_event: threading.Event,
+                                      refresh_event: threading.Event) -> None:
+        # A slow Dhan send must never hold the state lock or a Save & Apply request.
+        # One worker coalesces repeated edits and reads the latest eligibility.
+        while not stop_event.is_set():
+            if not refresh_event.wait(0.25):
+                continue
+            refresh_event.clear()
+            with self._lock:
+                if stop_event.is_set() or feed is not self._feed or not self._running:
+                    return
+                session = datetime.now(IST).date()
+                additions = [state for symbol, state in self._states.items()
+                             if symbol not in self._subscribed_symbols]
+            if not additions:
+                continue
+            try:
+                feed.subscribe_symbols([(MarketFeed.NSE, state.instrument.security_id, MarketFeed.Quote)
+                                        for state in additions])
+                with self._lock:
+                    if feed is self._feed and not stop_event.is_set():
+                        self._subscribed_symbols.update(state.instrument.symbol for state in additions)
+            except Exception as exc:
+                with self._lock:
+                    if feed is self._feed and not stop_event.is_set():
+                        self._status = f"Filters applied; live subscription update failed: {exc}. Save again to retry."
 
     def credentials_ready(self) -> bool:
         config = self.store.load()
@@ -364,8 +493,6 @@ class ScannerEngine:
             if symbol in cached or skip_historical_fallback:
                 continue
             try:
-                if cached or errors:
-                    time.sleep(1.15)
                 response = self._historical_daily_with_retry(
                     client,
                     state.instrument.security_id,
@@ -401,80 +528,164 @@ class ScannerEngine:
                 self._status += f"; {len(errors)} error(s)"
         return cached
 
+    def _daily_ready(self, state: StockState, session: date) -> bool:
+        daily = state.daily_filter
+        return bool(daily and daily.get("session_date") == session.isoformat()
+                    and "previous_high" in daily and "previous_low" in daily)
+
+    @staticmethod
+    def _five_day_close_level(daily: dict | None, session: date) -> float | None:
+        if not daily or daily.get("session_date") != session.isoformat():
+            return None
+        samples = daily.get("five_day_closes") or []
+        if len(samples) != 5:
+            return None
+        dates = [item.get("date", "") for item in samples]
+        prices = [_float_or_none(item.get("close")) for item in samples]
+        if (len(set(dates)) != 5 or any(not day or day >= session.isoformat() for day in dates)
+                or any(price is None or price <= 0 for price in prices)):
+            return None
+        return max(prices)
+
+    @staticmethod
+    def _volume_ready(state: StockState, session: date) -> bool:
+        return bool(state.volume_session == session and state.opening_volume_average
+                    and state.opening_volume_average > 0 and len(state.opening_volume_samples) == 3)
+
+    def _cache_entry(self, state: StockState) -> dict:
+        return {"average": state.opening_volume_average, "samples": state.opening_volume_samples,
+                "required_opening_volume": self.volume_filters.minute_volume_min * state.opening_volume_average if state.opening_volume_average else None,
+                "volume_session": state.volume_session.isoformat() if state.volume_session else None,
+                "daily_filter": state.daily_filter, "cached_at": datetime.now(IST).isoformat(timespec="seconds")}
+
+    def _prepare_daily(self, client: Any, state: StockState, session: date, *, need_five: bool = False) -> None:
+        fetched = not self._daily_ready(state, session)
+        first = state.confirmed_opening_candle
+        # Optional opening history must not block Redwala or shared volume preparation.
+        need_opening_history = need_five or bool(first and first.start.date() == session and first.color == "green")
+        if need_opening_history and missing_opening_history(state.daily_filter, session, self.volume_filters):
+            fetched = True
+        if need_five and self._five_day_close_level(state.daily_filter, session) is None:
+            fetched = True
+        # Five-close history is an additional requirement only for green setups.
+        # Never hold up Redwala (or its volume preparation) for that history.
+        if (self.volume_filters.today_open_cross and first and first.start.date() == session
+                and first.color == "green" and state.daily_filter and state.daily_filter.get("passes")
+                and self._five_day_close_level(state.daily_filter, session) is None):
+            fetched = True
+        if fetched:
+            daily = self._fetch_daily_filter(client, state.instrument, session)
+            with self._lock:
+                state.daily_filter = daily
+        with self._lock:
+            state.daily_filter = apply_daily_volume_limit(state.daily_filter, self.volume_filters.daily_volume_max)
+            state.previous_close = state.daily_filter["previous_close"]
+            if state.ltp is not None and state.previous_close:
+                state.percent_change = (state.ltp / state.previous_close - 1) * 100
+            if not state.daily_filter["passes"]:
+                state.preparation_status = "excluded"
+                state.confirmation_status = "pending"
+                state.signal_session = session
+                state.possible_candidate = state.retest_break = False
+                state.redwala_gira = bool(state.redwala_gira and state.confirmed_opening_candle
+                                         and state.confirmed_opening_candle.start.date() == session)
+                state.qualifies_scan = state.redwala_gira
+                state.status = "Daily filter failed for Candidates/Retest; Redwala still checked"
+            else:
+                state.preparation_status = "ready" if self._volume_ready(state, session) else "needs_volume"
+            state.error = None
+
+        if fetched:
+            self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+        missing = missing_opening_history(state.daily_filter, session, self.volume_filters)
+        if need_opening_history and state.daily_filter["passes"] and missing:
+            state.preparation_status = "unresolved"
+            raise RuntimeError(missing)
+
+    def _prepare_volume(self, client: Any, state: StockState, session: date,
+                        stop_event: threading.Event | None = None) -> None:
+        if self._volume_ready(state, session):
+            state.preparation_status = "ready"
+            return
+        samples, today_candles = self._fetch_opening_volume_history(client, state.instrument)
+        with self._lock:
+            if ((stop_event and stop_event.is_set())
+                    or self._states.get(state.instrument.symbol) is not state):
+                return
+            state.opening_volume_samples = samples
+            state.opening_volume_average = sum(sample["volume"] for sample in samples) / len(samples)
+            state.volume_session = session
+            state.preparation_status = "ready"
+            state.error = None
+            state.status = "volume cached"
+            if self._first_opening_candle(today_candles) is not None:
+                self._apply_opening_candidate(state.instrument.symbol, today_candles)
+
     def cache_opening_volume_averages(self) -> dict[str, float]:
+        with self._preparation_lock:
+            return self._prepare_scan_universe()
+
+    def _prepare_scan_universe(self) -> dict[str, float]:
         client = self._client()
+        session = datetime.now(IST).date()
         with self._lock:
             states = list(self._states.values())
         if not states:
             raise RuntimeError("Add stocks first")
-
-        cached: dict[str, float] = {}
-        cache_entries: dict[str, dict[str, Any]] = {}
-        errors: dict[str, str] = {}
-        fatal_error: str | None = None
-        for index, state in enumerate(states):
-            if index:
-                time.sleep(1.15)
-            symbol = state.instrument.symbol
-            try:
-                samples, today_candles = self._fetch_opening_volume_history(client, state.instrument)
-                daily_filter = self._fetch_daily_filter(client, state.instrument, datetime.now(IST).date())
-                average = sum(sample["volume"] for sample in samples) / len(samples)
-                entry = {
-                    "average": average,
-                    "samples": samples,
-                    "cached_at": datetime.now(IST).isoformat(timespec="seconds"),
-                    "daily_filter": daily_filter,
-                }
-                cached[symbol] = average
-                cache_entries[symbol] = entry
-                with self._lock:
-                    target = self._states.get(symbol)
-                    if target:
-                        target.opening_volume_average = average
-                        target.opening_volume_samples = samples
-                        target.daily_filter = daily_filter
-                        target.possible_candidate = False
-                        target.redwala_gira = False
-                        target.qualifies_scan = False
-                        target.error = None
-                        target.status = "volume cached"
-                if self._first_opening_candle(today_candles) is not None:
-                    self._apply_opening_candidate(symbol, today_candles)
-            except Exception as exc:
-                errors[symbol] = str(exc)
-                with self._lock:
-                    target = self._states.get(symbol)
-                    if target:
-                        target.error = f"Volume cache failed: {exc}"
-                        target.status = "volume cache error"
-                        target.daily_filter = None
-                        target.possible_candidate = False
-                        target.redwala_gira = False
-                        target.qualifies_scan = False
-                if _should_stop_api_batch(exc):
-                    fatal_error = str(exc)
-                    for remaining in states[index + 1 :]:
-                        remaining_symbol = remaining.instrument.symbol
-                        errors[remaining_symbol] = f"Skipped after Dhan error: {exc}"
-                        with self._lock:
-                            target = self._states.get(remaining_symbol)
-                            if target:
-                                target.error = errors[remaining_symbol]
-                                target.status = "volume cache skipped"
-                                target.daily_filter = None
-                                target.possible_candidate = False
-                                target.redwala_gira = False
-                                target.qualifies_scan = False
+        fatal_error = None
+        # Complete daily filtering for the entire universe before minute-history work.
+        for stage in ("daily", "volume"):
+            pending = list(states)
+            for attempt in range(3):
+                if not pending or fatal_error:
                     break
-
-        if cache_entries:
-            self.store.update_opening_volume_cache(cache_entries)
-
+                retry = []
+                for index, state in enumerate(pending):
+                    try:
+                        if stage == "daily":
+                            self._prepare_daily(client, state, session)
+                        elif self._daily_ready(state, session) and state.daily_filter["passes"]:
+                            self._prepare_volume(client, state, session)
+                        else:
+                            continue
+                    except Exception as exc:
+                        with self._lock:
+                            state.preparation_status = "unresolved"
+                            state.status = "Preparation unresolved"
+                            state.error = str(exc)
+                            state.possible_candidate = state.retest_break = False
+                            state.redwala_gira = bool(state.redwala_gira and state.confirmed_opening_candle
+                                                     and state.confirmed_opening_candle.start.date() == session)
+                            state.qualifies_scan = state.redwala_gira
+                        retry.append(state)
+                        if _should_stop_api_batch(exc):
+                            fatal_error = str(exc)
+                            for remaining in pending[index + 1:]:
+                                remaining.preparation_status = "unresolved"
+                                remaining.status = "volume cache skipped"
+                                remaining.error = f"Skipped after Dhan error: {exc}"
+                                remaining.possible_candidate = remaining.retest_break = False
+                                remaining.redwala_gira = bool(remaining.redwala_gira and remaining.confirmed_opening_candle
+                                                             and remaining.confirmed_opening_candle.start.date() == session)
+                                remaining.qualifies_scan = remaining.redwala_gira
+                                remaining.provisional_setup = None
+                            break
+                    with self._lock:
+                        self._status = f"Preparing {stage}: {index + 1}/{len(pending)} (pass {attempt + 1})"
+                pending = retry
+            self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state) for state in states})
+            if fatal_error:
+                break
+        closes = {state.instrument.symbol: state.previous_close for state in states
+                  if self._daily_ready(state, session) and state.previous_close}
+        if closes:
+            self.store.update_previous_closes(closes)
+        cached = {state.instrument.symbol: state.opening_volume_average for state in states
+                  if state.preparation_status == "ready" and self._volume_ready(state, session)}
+        excluded = sum(state.preparation_status == "excluded" for state in states)
+        unresolved = sum(state.preparation_status == "unresolved" for state in states)
         with self._lock:
-            self._status = f"Cached opening volume average and previous-day check for {len(cached)} stock(s)"
-            if errors:
-                self._status += f"; {len(errors)} error(s)"
+            self._status = f"Prepared {len(cached)}; daily filter excluded {excluded}; unresolved {unresolved}"
         if not cached and fatal_error:
             raise RuntimeError(fatal_error)
         self.refresh_circuit_limits(client)
@@ -513,7 +724,6 @@ class ScannerEngine:
                 ]
                 return samples, today_candles
             cursor_end = window_start
-            time.sleep(1.15)
 
         raise RuntimeError(
             f"Only {len(samples)} valid prior opening candle(s) found; 3 are required"
@@ -578,39 +788,100 @@ class ScannerEngine:
             (target_date - timedelta(days=90)).isoformat(),
             target_date.isoformat(),
         )
-        return calculate_daily_filter(_extract_data(response), target_date)
+        try:
+            return calculate_daily_filter(_extract_data(response), target_date, self.volume_filters.daily_volume_max)
+        except (RuntimeError, ValueError) as exc:
+            raise RuntimeError(f"Daily history for {instrument.symbol} (security ID {instrument.security_id}, "
+                               f"{target_date - timedelta(days=90)} to {target_date}, end exclusive): {exc}") from exc
 
-    @staticmethod
-    def _qualify_signal(signal: OpeningSignal, daily_filter: dict | None, session: date) -> dict:
+    def _qualify_signal(self, signal: OpeningSignal, daily_filter: dict | None, session: date) -> dict:
+        daily_filter = apply_daily_volume_limit(daily_filter, self.volume_filters.daily_volume_max)
         daily_ready = bool(daily_filter and daily_filter.get("session_date") == session.isoformat())
         daily_pass = daily_ready and daily_filter.get("passes") is True
-        volume_pass = signal.volume_multiplier >= VOLUME_MULTIPLIER_THRESHOLD
+        volume_pass = signal.volume_multiplier is not None and signal.volume_multiplier >= self.volume_filters.minute_volume_min
+        turnover_min = self.volume_filters.first_candle_turnover_min
+        turnover_pass = math.isfinite(signal.first.turnover) and signal.first.turnover > turnover_min
+        open_cross_level = self._five_day_close_level(daily_filter, session)
+        open_cross_pass = (not self.volume_filters.today_open_cross
+                           or (open_cross_level is not None and signal.first.open > open_cross_level))
+        opening_checks = evaluate_opening_filters(daily_filter, session, signal.first.open, self.volume_filters)
         first_red = signal.first.color == "red"
         open_high = signal.first.open == signal.first.high
-        possible = bool(volume_pass and daily_pass and signal.colors_match)
-        redwala = bool(volume_pass and daily_pass and first_red and open_high)
-        reason = signal.reason
+        possible = bool(volume_pass and turnover_pass and daily_pass and open_cross_pass and opening_checks["passes"] and signal.first.color == "green")
+        redwala = bool(turnover_pass and first_red and open_high)
+        reason = (f"{signal.reason}; first candle turnover {signal.first.turnover:,.2f} INR "
+                  f"> {turnover_min:,.2f} INR ({'pass' if turnover_pass else 'fail'})")
+        if signal.first.color == "green" and opening_checks["reason"]:
+            reason += "; " + opening_checks["reason"]
+        if self.volume_filters.today_open_cross and signal.first.color == "green":
+            if open_cross_level is None:
+                reason += "; Today Open Cross unresolved: five completed trading-session closes unavailable"
+            else:
+                reason += (f"; Today Open Cross: first open {signal.first.open:g} > "
+                           f"previous 5-session highest close {open_cross_level:g} ({'pass' if open_cross_pass else 'fail'})")
         if not daily_ready:
             reason += "; previous-day volume check unavailable for this session"
         else:
             reason += (
                 f"; {daily_filter['previous_date']} daily volume {daily_filter['multiplier']:.2f}x"
+                f" (limit <= {self.volume_filters.daily_volume_max:g}x or price change <= +1%)"
                 f", close change {daily_filter['percent_change']:.2f}%"
                 f" ({'pass' if daily_pass else 'fail'})"
             )
         if first_red:
             reason += f"; first candle Open = High: {'yes' if open_high else 'no'}"
             if open_high:
-                reason += "; redwala gira does not require a second candle"
+                reason = (f"Redwala: first candle red, Open = High; turnover {signal.first.turnover:,.2f} INR "
+                          f"> {turnover_min:,.2f} INR ({'pass' if turnover_pass else 'fail'}); "
+                          "daily and minute volume filters do not apply")
         return {
             "possible_candidate": possible,
             "redwala_gira": redwala,
+            "retest_base_eligible": bool(volume_pass and turnover_pass and daily_pass and first_red),
+            "retest_eligible": bool(volume_pass and turnover_pass and daily_pass and first_red and open_cross_pass and opening_checks["passes"]),
             "qualifies_scan": possible or redwala,
             "first_open_equals_high": open_high,
+            "first_open_equals_low": signal.first.open == signal.first.low,
+            **ScannerEngine._previous_day_crosses(signal.first, daily_filter, session, possible, redwala),
             "candidate_reason": reason,
         }
 
-    def backtest_date(self, target_date: date) -> dict[str, Any]:
+    @staticmethod
+    def _previous_day_crosses(first: Candle | None, daily_filter: dict | None,
+                             session: date | None, possible: bool, redwala: bool) -> dict:
+        high_cross = low_cross = False
+        if first and daily_filter and session == first.start.date() and daily_filter.get("session_date") == session.isoformat():
+            high = _float_or_none(daily_filter.get("previous_high"))
+            low = _float_or_none(daily_filter.get("previous_low"))
+            high_cross = bool(possible and high is not None and high > 0 and first.open < high < first.close)
+            low_cross = bool(redwala and low is not None and low > 0 and first.close < low < first.open)
+        return {"previous_day_high_cross": high_cross, "previous_day_low_cross": low_cross}
+
+    @staticmethod
+    def _second_candle_pdl_cross(first: Candle | None, candles: list[Candle],
+                                 daily: dict | None, session: date | None, redwala: bool) -> bool:
+        if not redwala or not first or first.start.date() != session:
+            return False
+        second = next((bar for bar in candles if bar.start == first.end), None)
+        if second is None or second.end > datetime.now(IST):
+            return False
+        return ScannerEngine._previous_day_crosses(second, daily, session, False, True)["previous_day_low_cross"]
+
+    def backtest_date(self, target_date: date, scan_type: str = "opening") -> dict[str, Any]:
+        # One run uses one immutable settings snapshot even if Live settings change.
+        previous = getattr(self._request_context, "volume_filters", None)
+        self._request_context.volume_filters = self._volume_filters
+        try:
+            return self._backtest_date(target_date, scan_type)
+        finally:
+            if previous is None:
+                del self._request_context.volume_filters
+            else:
+                self._request_context.volume_filters = previous
+
+    def _backtest_date(self, target_date: date, scan_type: str = "opening") -> dict[str, Any]:
+        if scan_type != "opening":
+            raise ValueError("Unknown scan type")
         today = datetime.now(IST).date()
         earliest = today - timedelta(days=BACKTEST_MAX_AGE_DAYS)
         if target_date > today:
@@ -630,12 +901,26 @@ class ScannerEngine:
         completed_count = 0
         first_error: str | None = None
         for index, state in enumerate(states):
-            if index:
-                time.sleep(1.15)
             try:
                 candles = self._fetch_backtest_history(client, state.instrument, target_date)
-                daily_filter = self._fetch_daily_filter(client, state.instrument, target_date)
-                rows.append(self._build_backtest_row(state.instrument, target_date, candles, daily_filter))
+                daily_error = None
+                try:
+                    daily_filter = self._fetch_daily_filter(client, state.instrument, target_date)
+                except Exception as exc:
+                    first = self._first_opening_candle([bar for bar in candles if bar.start.date() == target_date])
+                    if not (first and first.color == "red" and first.open == first.high):
+                        raise
+                    daily_filter = None
+                    daily_error = str(exc)
+                row = self._build_backtest_row(state.instrument, target_date, candles, daily_filter)
+                if daily_error:
+                    row["data_warning"] = daily_error + "; daily filters and previous-day levels unavailable. Redwala uses turnover only."
+                    row["status"] = "Partial: daily history unavailable"
+                rows.append(row)
+                if daily_error and _should_stop_api_batch(daily_error):
+                    rows.extend(self._backtest_error_row(remaining.instrument, target_date,
+                                f"Skipped after Dhan error: {daily_error}") for remaining in states[index + 1:])
+                    break
                 completed_count += 1
             except Exception as exc:
                 first_error = first_error or str(exc)
@@ -662,19 +947,24 @@ class ScannerEngine:
             reverse=True,
         )
         return {
+            "scan_type": scan_type,
             "target_date": target_date.isoformat(),
+            "volume_filters": self.volume_filters.model_dump(),
             "stocks": rows,
             "tested_count": sum(row["error"] is None for row in rows),
             "four_x_count": sum(
                 row["volume_multiplier"] is not None
-                and row["volume_multiplier"] >= VOLUME_MULTIPLIER_THRESHOLD
+                and row["volume_multiplier"] >= self.volume_filters.minute_volume_min
                 for row in rows
             ),
             "candidate_count": sum(row["possible_candidate"] for row in rows),
             "qualified_count": sum(row.get("qualifies_scan", False) for row in rows),
             "redwala_count": sum(row.get("redwala_gira", False) for row in rows),
+            "retest_count": sum(row.get("retest_break", False) for row in rows),
             "error_count": sum(row["error"] is not None for row in rows),
+            "warning_count": sum(bool(row.get("data_warning")) for row in rows),
         }
+
 
     def _fetch_backtest_history(
         self,
@@ -696,7 +986,11 @@ class ScannerEngine:
             range_start.strftime("%Y-%m-%d %H:%M:%S"),
             range_end.strftime("%Y-%m-%d %H:%M:%S"),
         )
-        return self._parse_intraday_candles(response)
+        try:
+            return [bar for bar in self._parse_intraday_candles(response) if bar.end <= datetime.now(IST)]
+        except (RuntimeError, ValueError) as exc:
+            raise RuntimeError(f"Minute history for {instrument.symbol} (security ID {instrument.security_id}, "
+                               f"{range_start:%Y-%m-%d %H:%M:%S} to {range_end:%Y-%m-%d %H:%M:%S}): {exc}") from exc
 
     def _build_backtest_row(
         self,
@@ -708,7 +1002,8 @@ class ScannerEngine:
         samples = self._select_historical_opening_samples(
             candles, target_date, VOLUME_SAMPLE_COUNT
         )
-        if len(samples) != VOLUME_SAMPLE_COUNT:
+        first = self._first_opening_candle([bar for bar in candles if bar.start.date() == target_date])
+        if len(samples) != VOLUME_SAMPLE_COUNT and not (first and first.color == "red" and first.open == first.high):
             raise RuntimeError(
                 f"Only {len(samples)} valid prior opening candle(s) found; 3 are required"
             )
@@ -717,10 +1012,26 @@ class ScannerEngine:
         if not target_candles:
             raise RuntimeError("No intraday data returned for the selected date")
 
-        average = sum(sample["volume"] for sample in samples) / len(samples)
+        average = sum(sample["volume"] for sample in samples) / len(samples) if len(samples) == VOLUME_SAMPLE_COUNT else None
+        daily_filter = apply_daily_volume_limit(daily_filter, self.volume_filters.daily_volume_max)
         signal = self._calculate_opening_signal(target_candles, average)
+        missing = missing_opening_history(daily_filter, target_date, self.volume_filters)
+        if missing and signal.first.color == "green":
+            raise RuntimeError(missing)
+        if (self.volume_filters.today_open_cross and signal.first.color == "green"
+                and self._five_day_close_level(daily_filter, target_date) is None):
+            raise RuntimeError("Today Open Cross needs five completed trading-session closes; daily history is incomplete")
         qualification = self._qualify_signal(signal, daily_filter, target_date)
+        now = datetime.now(IST)
+        completed = [bar for bar in target_candles if target_date < now.date() or bar.end <= now]
+        pattern = self._retest_result(signal.first, completed, daily_filter, qualification)
+        qualification["qualifies_scan"] = qualification["qualifies_scan"] or pattern["retest_break"]
         return {
+            **pattern,
+            **self._redwala_breaks(signal.first, completed, daily_filter, qualification["redwala_gira"]),
+            "previous_day_low_cross_second_candle": self._second_candle_pdl_cross(
+                signal.first, completed, daily_filter, target_date, qualification["redwala_gira"]),
+            "first_candle_high_break": bool(qualification["possible_candidate"] and first_high_broken(signal.first, completed)),
             "symbol": instrument.symbol,
             "name": instrument.name,
             "security_id": instrument.security_id,
@@ -730,6 +1041,7 @@ class ScannerEngine:
             "second_candle_start": signal.second.start.isoformat(timespec="seconds") if signal.second else None,
             "second_candle_color": signal.second.color if signal.second else None,
             "first_candle_volume": signal.first.volume,
+            "first_candle_turnover": signal.first.turnover,
             "opening_volume_average": average,
             "opening_volume_samples": samples,
             "volume_multiplier": signal.volume_multiplier,
@@ -739,7 +1051,7 @@ class ScannerEngine:
             "first_candle_open": signal.first.open,
             "first_candle_high": signal.first.high,
             "is_fno": instrument.symbol in FNO_SYMBOLS,
-            "status": "candidate" if qualification["possible_candidate"] else "checked",
+            "status": "candidate" if qualification["possible_candidate"] else "Retest Break confirmed" if pattern["retest_break"] else "checked",
             "error": None,
         }
 
@@ -770,54 +1082,138 @@ class ScannerEngine:
             "error": error,
         }
 
-    def evaluate_opening_candidates(self, client: Any | None = None) -> int:
-        client = client or self._client()
-        with self._lock:
-            states = list(self._states.values())
+    @contextmanager
+    def _priority_history(self):
+        previous = getattr(self._request_context, "priority", False)
+        with self._history_condition:
+            self._priority_workers += 1
+            self._request_context.priority = True
+            self._history_condition.notify_all()
+        try:
+            yield
+        finally:
+            with self._history_condition:
+                self._request_context.priority = previous
+                self._priority_workers -= 1
+                self._history_condition.notify_all()
 
-        candidate_count = 0
+    def evaluate_opening_candidates(self, client: Any | None = None, *, only_pending: bool = False) -> int:
+        with self._priority_history():
+            return self._confirm_opening_candidates(client, only_pending=only_pending)
+
+    def _confirm_opening_candidates(self, client: Any | None = None, *, only_pending: bool = False) -> int:
+        client = client or self._client()
+        session = datetime.now(IST).date()
+        if only_pending:
+            self._screen_live_opening(session)
+        with self._lock:
+            states = sorted(self._states.values(), key=lambda state: state.provisional_setup is None)
         checked_count = 0
-        first_error: str | None = None
+        first_error = None
+        stop_event = getattr(self._request_context, "stop_event", None) or self._candidate_stop
         for index, state in enumerate(states):
-            if index:
-                time.sleep(1.15)
-            symbol = state.instrument.symbol
+            if only_pending and stop_event.is_set():
+                break
+            if only_pending and self._opening_check_complete(state, session):
+                continue
+            candles = []
             try:
-                session = datetime.now(IST).date()
-                daily_filter = state.daily_filter
-                if not daily_filter or daily_filter.get("session_date") != session.isoformat():
-                    daily_filter = self._fetch_daily_filter(client, state.instrument, session)
-                    with self._lock:
-                        if self._states.get(symbol) is state:
-                            state.daily_filter = daily_filter
-                candles = self._fetch_opening_candles(client, state.instrument)
-                is_candidate = self._apply_opening_candidate(symbol, candles)
+                confirmed = state.confirmed_opening_candle
+                candles = ([confirmed] if only_pending and confirmed and confirmed.start.date() == session
+                           else self._fetch_opening_candles(client, state.instrument))
+                # Publish Redwala immediately, independent of historical filter availability.
+                with self._lock:
+                    if (only_pending and stop_event.is_set()) or self._states.get(state.instrument.symbol) is not state:
+                        break
+                    self._apply_opening_candidate(state.instrument.symbol, candles)
+                self._prepare_daily(client, state, session)
+                if only_pending and stop_event.is_set():
+                    break
+                if state.daily_filter["passes"] and (not state.opening_volume_average or (state.volume_session and state.volume_session != session)):
+                    self._prepare_volume(client, state, session, stop_event if only_pending else None)
+                    if only_pending and stop_event.is_set():
+                        break
+                    self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+                with self._lock:
+                    if (only_pending and stop_event.is_set()) or self._states.get(state.instrument.symbol) is not state:
+                        break
+                    self._apply_opening_candidate(state.instrument.symbol, candles)
+                    state.opening_metadata_pending = False
                 checked_count += 1
-                if is_candidate:
-                    candidate_count += 1
             except Exception as exc:
+                if state.redwala_gira and candles:
+                    state.opening_metadata_pending = True
+                    # Missing daily/minute history affects other setups and PDL metadata only.
+                    state.candidate_reason += f"; other setup history unavailable: {exc}"
+                    checked_count += 1
+                    if not _should_stop_api_batch(exc):
+                        continue
                 first_error = first_error or str(exc)
                 with self._lock:
-                    target = self._states.get(symbol)
-                    if target:
-                        target.possible_candidate = False
-                        target.redwala_gira = False
-                        target.qualifies_scan = False
-                        target.candidate_reason = f"Opening candle check failed: {exc}"
+                    state.possible_candidate = state.retest_break = False
+                    state.qualifies_scan = state.redwala_gira
+                    if not state.redwala_gira:
+                        state.signal_session = None
+                        state.confirmation_status = "unresolved"
+                    state.error = str(exc)
+                    state.candidate_reason = f"Opening candle check failed: {exc}"
                 if _should_stop_api_batch(exc):
-                    for remaining in states[index + 1 :]:
-                        with self._lock:
-                            target = self._states.get(remaining.instrument.symbol)
-                            if target:
-                                target.possible_candidate = False
-                                target.redwala_gira = False
-                                target.qualifies_scan = False
-                                target.candidate_reason = f"Opening candle check skipped: {exc}"
-                    break
+                    for remaining in states[index + 1:]:
+                        if not self._opening_check_complete(remaining, session):
+                            remaining.error = f"Opening candle check skipped: {exc}"
+                            remaining.confirmation_status = "unresolved"
+                    raise RuntimeError(str(exc)) from exc
         if states and checked_count == 0 and first_error:
             raise RuntimeError(first_error)
-        self.refresh_circuit_limits(client)
-        return candidate_count
+        # Circuit quotes have their own worker and never delay automatic confirmation.
+        if not only_pending:
+            self.refresh_circuit_limits(client)
+        with self._lock:
+            return sum(state.possible_candidate for state in self._states.values())
+
+    def _screen_live_opening(self, session: date, states: list[StockState] | None = None) -> None:
+        now = datetime.now(IST)
+        if now < datetime.combine(session, dt_time(9, 16), tzinfo=IST):
+            return
+        with self._lock:
+            for state in states if states is not None else self._states.values():
+                if self._opening_check_complete(state, session):
+                    continue
+                # Close by the clock, even when the next trade has not arrived.
+                current = state.current_candle
+                if current and current.start.date() == session and current.start.time() == dt_time(9, 15) and current.end <= now:
+                    self._merge_opening_candles(state, [Candle(current.start, current.open, current.high, current.low, current.close, current.volume)])
+                first = self._first_opening_candle(state.opening_candles)
+                if not first or first.start.date() != session:
+                    continue
+                signal = self._calculate_opening_signal([first], state.opening_volume_average if self._volume_ready(state, session) else None)
+                result = self._qualify_signal(signal, state.daily_filter, session)
+                state.today_opening_volume = first.volume
+                state.volume_multiplier = signal.volume_multiplier
+                state.provisional_setup = ("Possible candidate" if result["possible_candidate"] else
+                                           "redwala gira" if result["redwala_gira"] else None)
+                if state.provisional_setup:
+                    state.confirmation_status = "awaiting_confirmation"
+                    state.status = "Awaiting confirmation"
+                    state.candidate_reason = "Live-derived match; awaiting Dhan's completed first candle"
+                elif ((first.color != "red" or first.open != first.high) and self._volume_ready(state, session)
+                      and self._live_opening_complete(state, session)
+                      and state.opening_boundary_volume - state.feed_baseline_volume
+                      < self.volume_filters.minute_volume_min * state.opening_volume_average):
+                    state.confirmation_status = "local_rejected"
+                    state.signal_session = session
+                    state.status = "First-candle live filter failed"
+                    state.candidate_reason = result["candidate_reason"]
+                # An incomplete observation must go to historical confirmation, including apparent rejects.
+
+    def _live_opening_complete(self, state: StockState, session: date) -> bool:
+        opening = datetime.combine(session, dt_time(9, 15), tzinfo=IST)
+        return bool(self._connected and not state.feed_incomplete and state.feed_baseline_session == session
+                    and state.feed_baseline_volume is not None and state.opening_boundary_volume is not None
+                    and state.opening_boundary_volume >= state.feed_baseline_volume
+                    and state.opening_boundary_seen and state.opening_first_tick
+                    and opening <= state.opening_first_tick <= opening + timedelta(seconds=2)
+                    and state.opening_last_tick and state.opening_last_tick >= opening + timedelta(seconds=58))
 
     def refresh_circuit_limits(self, client: Any | None = None) -> None:
         # Quote failures must not alter the independent opening-setup qualification.
@@ -899,31 +1295,17 @@ class ScannerEngine:
             if target is None:
                 return False
             self._merge_opening_candles(target, candles)
-            average = target.opening_volume_average
-        if not average or average <= 0:
-            colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
             first = self._first_opening_candle(candles)
-            if first is None:
-                raise RuntimeError("Dhan did not return the first opening candle")
-            with self._lock:
-                target = self._states.get(symbol)
-                if target is None:
-                    return False
-                target.today_opening_volume = first.volume
-                target.volume_multiplier = None
-                target.opening_colors_match = colors_match
-                target.possible_candidate = False
-                target.redwala_gira = False
-                target.qualifies_scan = False
-                target.candidate_reason = f"{color_reason}; cache volume average first"
-                return False
-
+            average = (target.opening_volume_average if first and (target.volume_session is None or target.volume_session == first.start.date()) else None)
         signal = self._calculate_opening_signal(candles, average)
         with self._lock:
             target = self._states.get(symbol)
             if target is None:
                 return False
             target.today_opening_volume = signal.first.volume
+            target.confirmed_opening_candle = signal.first
+            self._merge_confirmed_session(target, candles)
+            target.daily_filter = apply_daily_volume_limit(target.daily_filter, self.volume_filters.daily_volume_max)
             target.volume_multiplier = signal.volume_multiplier
             target.opening_colors_match = signal.colors_match
             qualification = self._qualify_signal(signal, target.daily_filter, signal.first.start.date())
@@ -933,32 +1315,164 @@ class ScannerEngine:
             target.redwala_gira = qualification["redwala_gira"]
             target.qualifies_scan = qualification["qualifies_scan"]
             target.candidate_reason = qualification["candidate_reason"]
+            target.confirmation_status = "confirmed"
+            missing = (missing_opening_history(target.daily_filter, signal.first.start.date(), self.volume_filters)
+                       if signal.first.color == "green" else None)
+            if (self.volume_filters.today_open_cross and signal.first.color == "green"
+                    and self._five_day_close_level(target.daily_filter, signal.first.start.date()) is None):
+                missing = missing or "Today Open Cross needs five completed trading-session closes"
+            if missing:
+                target.confirmation_status = "unresolved"
+            target.provisional_setup = None
+            target.error = (missing + "; cache day levels or run Live to fetch them" if missing else None)
+            self._update_retest(target)
             return target.possible_candidate
+
+    def _retest_result(self, first: Candle, candles: list[Candle], daily: dict | None, qualification: dict) -> dict:
+        if not qualification["retest_base_eligible"]:
+            return {"retest_break": False, "retest_break_at": None, "retest_status": "filtered",
+                    "retest_reason": "Requires a red first candle and the configured daily-volume, opening-volume and turnover filters"}
+        if not qualification["retest_eligible"]:
+            checks = evaluate_opening_filters(daily, first.start.date(), first.open, self.volume_filters)
+            if not checks["passes"]:
+                return {"retest_break": False, "retest_break_at": None,
+                        "retest_status": "filtered" if checks["resolved"] else "unresolved",
+                        "retest_reason": "Retest Break: " + checks["reason"]}
+            missing = self.volume_filters.today_open_cross and self._five_day_close_level(daily, first.start.date()) is None
+            return {"retest_break": False, "retest_break_at": None,
+                    "retest_status": "unresolved" if missing else "filtered",
+                    "retest_reason": "Retest Break: five-session closes unavailable" if missing else "Retest Break: Today Open Cross failed"}
+        return retest_sequence(first, candles)
+
+    @staticmethod
+    def _merge_confirmed_session(state: StockState, candles: list[Candle]) -> None:
+        if not candles:
+            return
+        session = max(bar.start.date() for bar in candles)
+        state.confirmed_session_candles = {start: bar for start, bar in state.confirmed_session_candles.items()
+                                           if start.date() == session}
+        state.confirmed_session_candles.update({bar.start: bar for bar in candles if bar.start.date() == session})
+
+    def _update_retest(self, state: StockState) -> None:
+        first = state.confirmed_opening_candle
+        if not first:
+            return
+        average = (state.opening_volume_average if state.volume_session is None
+                   or state.volume_session == first.start.date() else None)
+        signal = self._calculate_opening_signal([first], average)
+        qualification = self._qualify_signal(signal, state.daily_filter, first.start.date())
+        result = self._retest_result(first, list(state.confirmed_session_candles.values()), state.daily_filter, qualification)
+        state.retest_break = result["retest_break"]
+        state.retest_break_at = result["retest_break_at"]
+        state.retest_status = result["retest_status"]
+        state.retest_reason = result["retest_reason"]
+        state.qualifies_scan = state.possible_candidate or state.redwala_gira or state.retest_break
+        if state.retest_break:
+            state.status = "Retest Break confirmed"
+
+    def evaluate_retest_breaks(self, stop_event: threading.Event | None = None) -> int:
+        """Confirm only volume-qualified red stocks, once each new minute is ready."""
+        now = datetime.now(IST)
+        cutoff = min(now.replace(second=0, microsecond=0),
+                     datetime.combine(now.date(), dt_time(15, 30), tzinfo=IST))
+        client = None
+        with self._lock:
+            states = list(self._states.values())
+        for state in states:
+            if stop_event and stop_event.is_set():
+                break
+            with self._lock:
+                first = state.confirmed_opening_candle
+                if (not first or first.start.date() != now.date() or first.end >= cutoff
+                        or not state.opening_volume_average):
+                    continue
+                signal = self._calculate_opening_signal([first], state.opening_volume_average)
+                qualification = self._qualify_signal(signal, state.daily_filter, now.date())
+                if not qualification["retest_base_eligible"] or state.retest_status in {"confirmed", "rejected"}:
+                    continue
+                needs_daily = bool(missing_opening_history(state.daily_filter, now.date(), self.volume_filters)
+                                   or (self.volume_filters.today_open_cross and self._five_day_close_level(state.daily_filter, now.date()) is None))
+                if not qualification["retest_eligible"] and not needs_daily:
+                    continue
+                if state.retest_attempt_at and (now - state.retest_attempt_at).total_seconds() < 5:
+                    continue
+                if state.retest_checked_through and state.retest_checked_through >= cutoff and state.retest_status != "unresolved":
+                    continue
+                state.retest_attempt_at = now
+            try:
+                client = client or self._client()
+                if needs_daily:
+                    daily = self._fetch_daily_filter(client, state.instrument, now.date())
+                    with self._lock:
+                        if (stop_event and stop_event.is_set()) or self._states.get(state.instrument.symbol) is not state:
+                            continue
+                        state.daily_filter = apply_daily_volume_limit(daily, self.volume_filters.daily_volume_max)
+                        self._update_retest(state)
+                        qualification = self._qualify_signal(signal, state.daily_filter, now.date())
+                    self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+                    if not qualification["retest_eligible"]:
+                        continue
+                response = self._intraday_with_retry(
+                    client, state.instrument.security_id, state.instrument.exchange_segment,
+                    state.instrument.instrument_type, first.start.strftime("%Y-%m-%d %H:%M:%S"),
+                    cutoff.strftime("%Y-%m-%d %H:%M:%S"))
+                candles = [bar for bar in self._parse_intraday_candles(response)
+                           if bar.start.date() == now.date() and first.start <= bar.start and bar.end <= cutoff]
+                with self._lock:
+                    if (stop_event and stop_event.is_set()) or self._states.get(state.instrument.symbol) is not state:
+                        continue
+                    if self._first_opening_candle(candles):
+                        self._apply_opening_candidate(state.instrument.symbol, candles)
+                    else:
+                        self._merge_confirmed_session(state, candles)
+                        self._update_retest(state)
+                    if candles:
+                        state.retest_checked_through = max(bar.end for bar in candles)
+                    if state.retest_status == "waiting" and (not candles or state.retest_checked_through < cutoff):
+                        state.retest_status = "unresolved"
+                        state.retest_reason = "Waiting for Dhan's latest completed minute candle"
+            except Exception as exc:
+                with self._lock:
+                    if not stop_event or not stop_event.is_set():
+                        state.retest_status = "unresolved"
+                        state.retest_reason = f"Retest confirmation unavailable: {exc}"
+                if _should_stop_api_batch(exc):
+                    raise
+        with self._lock:
+            return sum(state.retest_break for state in self._states.values())
+
+    def _refresh_retest_breaks(self, stop_event: threading.Event) -> None:
+        while not stop_event.wait(1):
+            now = datetime.now(IST)
+            if not dt_time(9, 17) <= now.time() <= dt_time(15, 31):
+                continue
+            try:
+                self.evaluate_retest_breaks(stop_event)
+            except Exception as exc:
+                LOGGER.warning("Retest confirmation failed: %s", exc)
+                if stop_event.wait(30):
+                    return
 
     def _calculate_opening_signal(
         self,
         candles: list[Candle],
-        volume_average: float,
+        volume_average: float | None,
     ) -> OpeningSignal:
-        if volume_average <= 0:
+        if volume_average is not None and volume_average <= 0:
             raise ValueError("Opening volume average must be greater than zero")
-        colors_match, color_reason = self._evaluate_opening_candle_pairs(candles)
-        selected_pair = self._select_opening_pair(candles)
-        if selected_pair is None:
-            first = self._first_opening_candle(candles)
-            if first is None:
-                raise RuntimeError("Dhan did not return the first opening candle")
-            first_label = first.start.strftime("%H:%M")
-            second_label = first.end.strftime("%H:%M")
-            second = None
-        else:
-            first_label, first, second_label, second = selected_pair
-        multiplier = first.volume / volume_average
-        possible_candidate = colors_match and multiplier >= VOLUME_MULTIPLIER_THRESHOLD
+        colors_match, color_reason = self._evaluate_first_opening_candle(candles)
+        first = self._first_opening_candle(candles)
+        if first is None:
+            raise RuntimeError("Dhan did not return the first opening candle")
+        first_label = first.start.strftime("%H:%M")
+        second_label = first.end.strftime("%H:%M")
+        second = next((candle for candle in candles if candle.start == first.end), None)
+        multiplier = first.volume / volume_average if volume_average else None
+        possible_candidate = colors_match and multiplier is not None and multiplier >= self.volume_filters.minute_volume_min
         reason = (
             f"{color_reason}; opening volume {first.volume:,} / average {volume_average:,.0f} "
-            f"= {multiplier:.2f}x"
-        )
+            f"= {multiplier:.2f}x (minimum {self.volume_filters.minute_volume_min:g}x)"
+        ) if volume_average else f"{color_reason}; opening-volume history unavailable"
         return OpeningSignal(
             first_label=first_label,
             first=first,
@@ -975,7 +1489,7 @@ class ScannerEngine:
         now = datetime.now(IST)
         today = now.date()
         session_start = datetime.combine(today, dt_time(9, 14), tzinfo=IST)
-        session_end = min(now, datetime.combine(today, dt_time(9, 26), tzinfo=IST))
+        session_end = min(now, datetime.combine(today, dt_time(9, 20), tzinfo=IST))
         response = self._intraday_with_retry(
             client,
             instrument.security_id,
@@ -989,35 +1503,12 @@ class ScannerEngine:
             if candle.start.date() == today and candle.end <= now
         ]
 
-    def _evaluate_opening_candle_pairs(self, candles: list[Candle]) -> tuple[bool, str]:
-        selected = self._select_opening_pair(candles)
-        if selected is None:
-            first = self._first_opening_candle(candles)
-            if first is not None:
-                return False, f"{first.start:%H:%M} {first.color}; second opening candle unavailable"
-            labels = ", ".join(f"{first}/{second}" for first, second in OPENING_CANDLE_PAIRS)
-            raise RuntimeError(f"Dhan did not return opening candle pairs: {labels}")
-
-        first_label, first, second_label, second = selected
-        detail = (
-            f"{first_label}/{second_label}: {first_label} {first.color}, "
-            f"{second_label} {second.color}"
-        )
-        if self._is_candidate_color_pair(first.color, second.color):
-            return True, f"Matched {detail}"
-        return False, detail
-
-    @staticmethod
-    def _select_opening_pair(
-        candles: list[Candle],
-    ) -> tuple[str, Candle, str, Candle] | None:
-        by_minute = {candle.start.strftime("%H:%M"): candle for candle in candles}
-        for first_label, second_label in OPENING_CANDLE_PAIRS:
-            first = by_minute.get(first_label)
-            second = by_minute.get(second_label)
-            if first is not None and second is not None:
-                return first_label, first, second_label, second
-        return None
+    def _evaluate_first_opening_candle(self, candles: list[Candle]) -> tuple[bool, str]:
+        # Retain the legacy field name for API compatibility; only the first colour matters.
+        first = self._first_opening_candle(candles)
+        if first is None:
+            raise RuntimeError("Dhan did not return the first opening candle")
+        return first.color == "green", f"First candle {first.start:%H:%M} {first.color}; second candle not required"
 
     @staticmethod
     def _opening_window_candles(candles: list[Candle]) -> list[Candle]:
@@ -1028,7 +1519,7 @@ class ScannerEngine:
             candle.start: candle
             for candle in candles
             if candle.start.date() == session_date
-            and dt_time(9, 14) <= candle.start.time() <= dt_time(9, 24)
+            and dt_time(9, 14) <= candle.start.time() <= dt_time(9, 19)
         }
         ordered = sorted(by_start.values(), key=lambda candle: candle.start)
         if not ordered:
@@ -1041,7 +1532,7 @@ class ScannerEngine:
             ),
             datetime.combine(session_date, dt_time(9, 15), tzinfo=IST),
         )
-        last_start = first_start + timedelta(minutes=9)
+        last_start = first_start + timedelta(minutes=4)
         return [
             candle for candle in ordered if first_start <= candle.start <= last_start
         ]
@@ -1060,12 +1551,6 @@ class ScannerEngine:
                 existing[candle.start] = candle
         state.opening_candles = self._opening_window_candles(list(existing.values()))
 
-    @staticmethod
-    def _is_candidate_color_pair(first_color: str, second_color: str) -> bool:
-        return (first_color, second_color) in {
-            ("green", "green"), ("green", "red"), ("red", "green")
-        }
-
     def _parse_intraday_candles(self, response: Any) -> list[Candle]:
         data = _extract_data(response)
         timestamps = data.get("timestamp") or []
@@ -1074,22 +1559,31 @@ class ScannerEngine:
         lows = data.get("low") or []
         closes = data.get("close") or []
         volumes = data.get("volume") or []
+        if any(len(values) != len(timestamps) for values in (opens, highs, lows, closes, volumes)):
+            raise ValueError("Dhan intraday history has mismatched candle arrays")
         candles: list[Candle] = []
         for index, ts in enumerate(timestamps):
             try:
                 candle_start = datetime.fromtimestamp(int(float(ts)), IST).replace(second=0, microsecond=0)
-                candles.append(
-                    Candle(
+                volume = float(volumes[index])
+                if not math.isfinite(volume) or volume < 0 or not volume.is_integer():
+                    raise ValueError("Invalid candle volume")
+                candle = Candle(
                         start=candle_start,
                         open=float(opens[index]),
                         high=float(highs[index]),
                         low=float(lows[index]),
                         close=float(closes[index]),
-                        volume=int(float(volumes[index])),
+                        volume=int(volume),
                     )
-                )
-            except (IndexError, TypeError, ValueError):
-                continue
+                prices = (candle.open, candle.high, candle.low, candle.close)
+                if (not all(math.isfinite(price) and price > 0 for price in prices)
+                        or candle.low > min(candle.open, candle.close)
+                        or candle.high < max(candle.open, candle.close)):
+                    raise ValueError("Invalid candle OHLC prices")
+                candles.append(candle)
+            except (IndexError, TypeError, ValueError, OverflowError, OSError) as exc:
+                raise ValueError(f"Invalid Dhan intraday candle at index {index}: {exc}") from exc
         return candles
 
     def _cache_from_ohlc_batch(self, client: Any, states: list[StockState]) -> dict[str, float]:
@@ -1172,13 +1666,30 @@ class ScannerEngine:
         raise RuntimeError(last_error or "Dhan intraday request failed")
 
     def _history_call(self, method: Any, *args: Any, **kwargs: Any) -> Any:
-        # Daily and minute requests share one throttle across cache, live and backtest workers.
-        with self._history_lock:
-            delay = 0.3 - (time.monotonic() - self._last_history_call)
-            if delay > 0:
-                time.sleep(delay)
-            self._last_history_call = time.monotonic()
-            return method(*args, **kwargs)
+        priority = getattr(self._request_context, "priority", False)
+        while True:
+            with self._history_condition:
+                while not priority and self._history_reserved():
+                    self._history_condition.wait(0.1)
+            with self._history_lock:
+                # Recheck after a request already in flight finishes.
+                if not priority and self._history_reserved():
+                    continue
+                delay = HISTORY_REQUEST_SPACING - (time.monotonic() - self._last_history_call)
+                if delay > 0:
+                    time.sleep(delay)
+                self._last_history_call = time.monotonic()
+                return method(*args, **kwargs)
+
+    def _history_reserved(self) -> bool:
+        now = datetime.now(IST)
+        opening_due = self._running and not self._opening_finished and dt_time(9, 16) <= now.time() < dt_time(9, 30)
+        return self._priority_workers > 0 or opening_due
+
+
+
+
+
 
     def start(self) -> None:
         if MarketFeed is None or DhanContext is None:
@@ -1192,7 +1703,33 @@ class ScannerEngine:
         self.stop()
 
         with self._lock:
+            session = datetime.now(IST).date()
             states = list(self._states.values())
+            if not states:
+                raise RuntimeError("All stocks fail today's previous-day filter")
+            self._opening_finished = False
+            self._subscribed_symbols = {state.instrument.symbol for state in states}
+            for state in states:
+                state.feed_incomplete = True
+                state.feed_baseline_session = None
+                state.feed_baseline_volume = None
+                state.opening_boundary_volume = None
+                state.opening_boundary_seen = False
+                state.opening_first_tick = state.opening_last_tick = None
+                state.last_cumulative_volume = None
+                state.current_candle = None
+                if state.signal_session != session:
+                    state.confirmation_status = "pending"
+                    state.provisional_setup = None
+                    state.possible_candidate = state.redwala_gira = state.retest_break = state.qualifies_scan = False
+                    state.opening_candles = []
+                    state.confirmed_session_candles = {}
+                    state.retest_break = False
+                    state.retest_status = "waiting"
+                    state.retest_break_at = None
+                    state.retest_reason = None
+                    state.retest_checked_through = None
+                    state.retest_attempt_at = None
             self._running = True
             self._connected = False
             self._status = "Connecting to Dhan websocket..."
@@ -1201,36 +1738,52 @@ class ScannerEngine:
             (MarketFeed.NSE, state.instrument.security_id, MarketFeed.Quote)
             for state in states
         ]
-        context = DhanContext(config.client_id, config.access_token)
-        self._feed = MarketFeed(
-            context,
-            instruments,
-            "v2",
-            on_connect=self._on_connect,
-            on_message=self._on_message,
-            on_close=self._on_close,
-            on_error=self._on_error,
-        )
-        self._feed_thread = self._feed.start()
-        self._candidate_stop = threading.Event()
-        self._candidate_thread = threading.Thread(
-            target=self._refresh_opening_candidates_when_ready,
-            args=(self._candidate_stop,),
-            name="opening-candidate-refresh",
-            daemon=True,
-        )
-        self._candidate_thread.start()
-        self._circuit_thread = threading.Thread(
-            target=self._refresh_circuit_limits_loop,
-            args=(self._candidate_stop,),
-            name="circuit-limit-refresh",
-            daemon=True,
-        )
-        self._circuit_thread.start()
+        try:
+            context = DhanContext(config.client_id, config.access_token)
+            self._feed = MarketFeed(
+                context,
+                instruments,
+                "v2",
+                on_connect=self._on_connect,
+                on_message=self._on_message,
+                on_close=self._on_close,
+                on_error=self._on_error,
+            )
+            self._feed_thread = self._feed.start()
+            self._candidate_stop = threading.Event()
+            self._candidate_refresh = threading.Event()
+            self._subscription_refresh = threading.Event()
+            self._candidate_thread = threading.Thread(
+                target=self._refresh_opening_candidates_when_ready,
+                args=(self._candidate_stop, self._candidate_refresh),
+                name="opening-candidate-refresh",
+                daemon=True,
+            )
+            self._candidate_thread.start()
+            threading.Thread(target=self._refresh_retest_breaks, args=(self._candidate_stop,),
+                             name="retest-break-refresh", daemon=True).start()
+            threading.Thread(target=self._refresh_filter_subscriptions,
+                             args=(self._feed, self._candidate_stop, self._subscription_refresh),
+                             name="filter-subscription-refresh", daemon=True).start()
+            self._circuit_thread = threading.Thread(
+                target=self._refresh_circuit_limits_loop,
+                args=(self._candidate_stop,),
+                name="circuit-limit-refresh",
+                daemon=True,
+            )
+            self._circuit_thread.start()
+        except Exception as exc:
+            self.stop()
+            with self._lock:
+                self._status = f"Live start failed: {exc}"
+            raise
 
     def stop(self) -> None:
         feed = self._feed
         self._candidate_stop.set()
+        self._opening_finished = True
+        with self._history_condition:
+            self._history_condition.notify_all()
         with self._lock:
             self._running = False
             self._connected = False
@@ -1246,33 +1799,64 @@ class ScannerEngine:
             except Exception as exc:
                 LOGGER.warning("Error closing Dhan feed: %s", exc)
 
-    def _refresh_opening_candidates_when_ready(self, stop_event: threading.Event) -> None:
+    def _opening_check_complete(self, state: StockState, session: date) -> bool:
+        if state.opening_metadata_pending:
+            return False
+        if (state.signal_session == session and state.confirmation_status == "confirmed"
+                and state.redwala_gira):
+            return True
+        daily = state.daily_filter
+        return bool(state.signal_session == session and daily and self._daily_ready(state, session)
+                    and daily.get("session_date") == session.isoformat()
+                    and "previous_high" in daily and "previous_low" in daily
+                    and state.confirmation_status in {"confirmed", "local_rejected"})
+
+    def _refresh_opening_candidates_when_ready(self, stop_event: threading.Event,
+                                              refresh_event: threading.Event) -> None:
+        self._request_context.stop_event = stop_event
+        try:
+            while not stop_event.is_set():
+                refresh_event.clear()
+                if stop_event is self._candidate_stop:
+                    self._opening_finished = False
+                self._run_opening_confirmation(stop_event)
+                if stop_event is self._candidate_stop:
+                    self._opening_finished = True
+                with self._history_condition:
+                    self._history_condition.notify_all()
+                # Keep the worker available after the initial opening scan so a
+                # lower threshold can reopen rejected stocks without restarting Live.
+                while not stop_event.is_set() and not refresh_event.wait(0.25):
+                    pass
+        finally:
+            if stop_event is self._candidate_stop:
+                self._opening_finished = True
+            with self._history_condition:
+                self._history_condition.notify_all()
+            self._request_context.stop_event = None
+
+    def _run_opening_confirmation(self, stop_event: threading.Event) -> None:
         now = datetime.now(IST)
-        pair_ready_at = datetime.combine(now.date(), dt_time(9, 17), tzinfo=IST)
-        # Confirm the first candle at 09:16, then refresh the two-candle setup at 09:17.
-        minutes = (16, 17) if now < pair_ready_at else (17,)
-        for minute in minutes:
-            ready_at = datetime.combine(now.date(), dt_time(9, minute), tzinfo=IST)
-            wait_seconds = max((ready_at - datetime.now(IST)).total_seconds(), 0)
-            if stop_event.wait(wait_seconds):
+        ready_at = datetime.combine(now.date(), dt_time(9, 16), tzinfo=IST)
+        if stop_event.wait(max((ready_at - now).total_seconds(), 0)):
+            return
+        self._screen_live_opening(now.date())
+        for attempt in range(6):
+            if attempt and stop_event.wait(2):
                 return
             with self._lock:
-                already_checked = bool(self._states) and all(
-                    state.signal_session == now.date()
-                    and (minute == 16 or state.opening_pair_confirmed)
-                    and state.daily_filter is not None
-                    and state.daily_filter.get("session_date") == now.date().isoformat()
-                    for state in self._states.values()
-                )
-            if already_checked:
-                continue
+                if self._states and all(self._opening_check_complete(state, now.date()) for state in self._states.values()):
+                    return
             try:
-                count = self.evaluate_opening_candidates()
+                count = self.evaluate_opening_candidates(only_pending=True)
                 with self._lock:
                     if self._running:
-                        self._status = f"Live feed connected; {count} possible candidate(s)"
+                        unresolved = sum(not self._opening_check_complete(state, now.date()) for state in self._states.values())
+                        self._status = f"Opening scan: {count} confirmed possible candidate(s); {unresolved} unresolved"
             except Exception as exc:
                 LOGGER.warning("Automatic opening candidate refresh failed: %s", exc)
+                if _should_stop_api_batch(exc):
+                    return
 
     def repair_missing_candles(self) -> int:
         client = self._client()
@@ -1321,11 +1905,15 @@ class ScannerEngine:
                 if state and (state.completed_candle is None or candle.start >= state.completed_candle.start):
                     state.completed_candle = candle
                     self._merge_opening_candles(state, [candle])
+                    self._merge_confirmed_session(state, [candle])
+                    self._update_retest(state)
                     state.status = "repaired"
                     repaired += 1
         return repaired
 
     def _on_connect(self, _feed: Any) -> None:
+        if _feed is not None and _feed is not self._feed:
+            return
         with self._lock:
             self._connected = True
             self._status = "Live feed connected"
@@ -1333,29 +1921,41 @@ class ScannerEngine:
                 state.status = "live"
 
     def _on_close(self, _feed: Any) -> None:
+        if _feed is not None and _feed is not self._feed:
+            return
         with self._lock:
             self._connected = False
+            self._invalidate_opening_feed()
             if self._running:
                 self._status = "Live feed disconnected"
 
     def _on_error(self, _feed: Any, error: Exception) -> None:
+        if _feed is not None and _feed is not self._feed:
+            return
         with self._lock:
             self._connected = False
             self._status = f"Feed error: {error}"
+            self._invalidate_opening_feed()
+
+    def _invalidate_opening_feed(self) -> None:
+        for state in self._states.values():
+            state.feed_incomplete = True
+            if state.confirmation_status == "local_rejected":
+                state.confirmation_status = "pending"
+                state.signal_session = None
 
     def _on_message(self, _feed: Any, data: Any) -> None:
+        if _feed is not None and _feed is not self._feed:
+            return
         if not isinstance(data, dict):
             return
         security_id = str(data.get("security_id", ""))
         with self._lock:
-            symbol = next(
-                (
-                    key
-                    for key, value in self._states.items()
-                    if value.instrument.security_id == security_id
-                ),
-                None,
-            )
+            symbol = self._security_symbols.get(security_id)
+            if symbol not in self._states:
+                symbol = next((key for key, state in self._states.items() if state.instrument.security_id == security_id), None)
+                if symbol:
+                    self._security_symbols[security_id] = symbol
         if not symbol:
             return
 
@@ -1381,8 +1981,41 @@ class ScannerEngine:
             state.day_volume = cumulative_volume if cumulative_volume is not None else state.day_volume
             state.last_tick_time = tick_time
             state.last_tick_received_at = datetime.now(IST)
-            state.status = "live"
-            state.error = None
+            if state.confirmation_status not in {"awaiting_confirmation", "unresolved", "local_rejected", "daily_rejected"}:
+                state.status = "live"
+            received_at = datetime.now(IST)
+            opening = datetime.combine(received_at.date(), dt_time(9, 15), tzinfo=IST)
+            if tick_time.date() == received_at.date() and opening + timedelta(minutes=1) <= tick_time < opening.replace(hour=15, minute=30):
+                if state.post_opening_trough_session != tick_time.date():
+                    state.post_opening_trough_session = tick_time.date()
+                    state.post_opening_trough = ltp
+                else:
+                    state.post_opening_trough = min(state.post_opening_trough if state.post_opening_trough is not None else ltp, ltp)
+                if state.post_opening_peak_session != tick_time.date():
+                    state.post_opening_peak_session = tick_time.date()
+                    state.post_opening_peak = ltp
+                else:
+                    state.post_opening_peak = max(state.post_opening_peak or ltp, ltp)
+            if tick_time.date() != received_at.date() or cumulative_volume is None:
+                state.feed_incomplete = True
+            elif received_at < opening and tick_time < opening and self._connected:
+                state.feed_baseline_session = received_at.date()
+                state.feed_baseline_volume = cumulative_volume
+                state.feed_incomplete = False
+            elif opening <= tick_time < opening + timedelta(minutes=1):
+                if state.opening_first_tick is None:
+                    state.opening_first_tick = tick_time
+                state.opening_last_tick = tick_time
+                if received_at - tick_time > timedelta(seconds=3):
+                    state.feed_incomplete = True
+                if state.confirmation_status == "local_rejected":
+                    state.confirmation_status = "pending"
+                    state.signal_session = None
+            elif tick_time >= opening + timedelta(minutes=1) and state.opening_boundary_volume is None:
+                state.opening_boundary_seen = True
+                state.opening_boundary_volume = cumulative_volume
+            if cumulative_volume is not None and state.last_cumulative_volume is not None and cumulative_volume < state.last_cumulative_volume:
+                state.feed_incomplete = True
             if state.previous_close:
                 state.percent_change = ((ltp - state.previous_close) / state.previous_close) * 100
 
@@ -1391,6 +2024,10 @@ class ScannerEngine:
                 if state.last_cumulative_volume is not None and cumulative_volume >= state.last_cumulative_volume:
                     volume_delta = cumulative_volume - state.last_cumulative_volume
                 state.last_cumulative_volume = cumulative_volume
+
+            if tick_time < opening:
+                # Premarket quotes seed volume, not a fake 09:14 opening candle.
+                return
 
             if state.current_candle is None:
                 state.current_candle = Candle(candle_start, ltp, ltp, ltp, ltp, volume_delta)
@@ -1402,11 +2039,14 @@ class ScannerEngine:
 
             if candle_start > state.current_candle.start:
                 state.completed_candle = state.current_candle
-                self._merge_opening_candles(state, [state.completed_candle])
+                existing_first = self._first_opening_candle(state.opening_candles)
+                if not (state.confirmation_status == "confirmed" and existing_first
+                        and existing_first.start == state.completed_candle.start):
+                    self._merge_opening_candles(state, [state.completed_candle])
                 state.current_candle = Candle(candle_start, ltp, ltp, ltp, ltp, volume_delta)
                 return
 
-            state.current_candle.update(ltp, volume_delta)
+            state.feed_incomplete = True
 
     def _tick_time(self, ltt: Any) -> datetime:
         if isinstance(ltt, str) and ltt:
@@ -1436,6 +2076,7 @@ class ScannerEngine:
             )
             return {
                 "running": self._running,
+                "volume_filters": self._volume_filters.model_dump(),
                 "connected": self._connected,
                 "status": self._status,
                 "stocks": rows,
@@ -1443,14 +2084,51 @@ class ScannerEngine:
                 "updated_at": datetime.now(IST).isoformat(timespec="seconds"),
             }
 
+    @staticmethod
+    def _redwala_breaks(first: Candle | None, candles: list[Candle], daily: dict | None,
+                        eligible: bool, trough: float | None = None) -> dict:
+        result = {"first_candle_low_break": False, "previous_day_low_break": False}
+        if not eligible or not first:
+            return result
+        lows = [bar.low for bar in candles if bar.start.date() == first.start.date()
+                and first.end <= bar.start and bar.start.time() < dt_time(15, 30)]
+        if trough is not None:
+            lows.append(trough)
+        result["first_candle_low_break"] = any(low < first.low for low in lows)
+        level = (_float_or_none(daily.get("previous_low")) if daily
+                 and daily.get("session_date") == first.start.date().isoformat() else None)
+        result["previous_day_low_break"] = bool(level and level > 0 and min([first.low, *lows]) < level)
+        return result
+
     def _row(self, state: StockState) -> dict[str, Any]:
         candle = state.completed_candle
         opening_candles = self._opening_window_candles(state.opening_candles)
-        opening_pair = self._select_opening_pair(opening_candles)
-        first_opening = opening_pair[1] if opening_pair else self._first_opening_candle(opening_candles)
-        second_opening = opening_pair[3] if opening_pair else None
+        first_opening = self._first_opening_candle(opening_candles)
+        second_opening = next((item for item in opening_candles if first_opening and item.start == first_opening.end), None)
         return {
+            **self._redwala_breaks(state.confirmed_opening_candle,
+                list(state.confirmed_session_candles.values()), state.daily_filter, state.redwala_gira,
+                state.post_opening_trough if state.confirmed_opening_candle
+                and state.post_opening_trough_session == state.confirmed_opening_candle.start.date() else None),
+            "preparation_status": state.preparation_status,
+            "retest_break": state.retest_break,
+            "retest_break_at": state.retest_break_at,
+            "retest_status": state.retest_status,
+            "retest_reason": state.retest_reason,
+            "first_candle_high_break": bool(state.possible_candidate and state.confirmed_opening_candle
+                and (first_high_broken(state.confirmed_opening_candle, list(state.confirmed_session_candles.values()))
+                     or (state.post_opening_peak_session == state.confirmed_opening_candle.start.date()
+                         and state.post_opening_peak is not None and state.post_opening_peak > state.confirmed_opening_candle.high))),
+            "confirmation_status": state.confirmation_status,
+            "provisional_setup": state.provisional_setup,
+            "awaiting_confirmation": bool(state.provisional_setup and state.confirmation_status != "confirmed"),
+            "required_opening_volume": self.volume_filters.minute_volume_min * state.opening_volume_average if state.opening_volume_average else None,
+            "feed_complete": self._live_opening_complete(state, datetime.now(IST).date()),
             **self._circuit_fields(state),
+            **self._previous_day_crosses(first_opening, state.daily_filter, state.signal_session,
+                                        state.possible_candidate, state.redwala_gira),
+            "previous_day_low_cross_second_candle": self._second_candle_pdl_cross(
+                first_opening, opening_candles, state.daily_filter, state.signal_session, state.redwala_gira),
             "symbol": state.instrument.symbol,
             "name": state.instrument.name,
             "security_id": state.instrument.security_id,
@@ -1493,6 +2171,7 @@ class ScannerEngine:
             "first_candle_open": first_opening.open if first_opening else None,
             "first_candle_high": first_opening.high if first_opening else None,
             "first_open_equals_high": bool(first_opening and first_opening.open == first_opening.high),
+            "first_open_equals_low": bool(first_opening and first_opening.open == first_opening.low),
             "candidate_reason": state.candidate_reason,
             "is_fno": state.instrument.symbol in FNO_SYMBOLS,
             "status": state.status,

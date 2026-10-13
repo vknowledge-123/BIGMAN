@@ -423,12 +423,8 @@ table {
 .backtest-table td:nth-child(2),
 .backtest-table th:nth-child(3),
 .backtest-table td:nth-child(3),
-.backtest-table th:nth-child(4),
-.backtest-table td:nth-child(4),
-.backtest-table th:nth-child(10),
-.backtest-table td:nth-child(10),
-.backtest-table th:nth-child(11),
-.backtest-table td:nth-child(11) {
+.backtest-table th:nth-child(9),
+.backtest-table td:nth-child(9) {
   text-align: left;
 }
 
@@ -454,14 +450,12 @@ th {
 
 .live-table th:nth-child(2),
 .live-table td:nth-child(2),
-.live-table th:nth-child(7),
-.live-table td:nth-child(7),
+.live-table th:nth-child(9),
+.live-table td:nth-child(9),
 .live-table th:nth-child(16),
 .live-table td:nth-child(16),
 .live-table th:nth-child(18),
-.live-table td:nth-child(18),
-.live-table th:nth-child(19),
-.live-table td:nth-child(19) {
+.live-table td:nth-child(18) {
   text-align: left;
 }
 
@@ -495,11 +489,60 @@ tbody tr:hover {
   text-transform: uppercase;
 }
 
+.opening-summary {
+  position: sticky;
+  left: 14px;
+  width: min(1400px, calc(100vw - 64px));
+}
+
+.volume-filters { margin-top: 16px; }
+.filter-fields {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.filter-fields label { flex: 1 1 260px; min-width: 0; }
+.filter-fields input { width: 100%; }
+.filter-fields button { margin-bottom: 12px; }
+.setup-filter { max-width: 320px; margin: 16px 0 8px; }
+.setup-filter select { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+.retest-badge { color: #6242a8; background: #f0eaff; }
+.open-cross-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+.open-cross-toggle input {
+  appearance: none;
+  width: 42px;
+  height: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  padding: 2px;
+  margin: 0;
+  border: 1px solid var(--muted);
+  border-radius: 20px;
+  background: var(--line);
+  cursor: pointer;
+}
+.open-cross-toggle input::before {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: white;
+}
+.open-cross-toggle input:checked { background: var(--blue); border-color: var(--blue); }
+.open-cross-toggle input:checked::before { transform: translateX(18px); }
+
 .opening-timeline {
   display: grid;
-  grid-template-columns: repeat(10, minmax(112px, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 7px;
-  min-width: 1240px;
 }
 
 .opening-candle {
@@ -621,10 +664,51 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.symbol-cell {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 240px;
+  min-width: 240px;
+  max-width: 240px;
+  white-space: normal;
+  background: var(--panel);
+  box-shadow: 1px 0 0 var(--line);
+}
+
+th.symbol-cell {
+  z-index: 3;
+  background: #f5f8fd;
+}
+
+.candidate-row .symbol-cell {
+  background: #f3faf7;
+}
+
+.symbol-cell .symbol span {
+  max-width: 210px;
+  white-space: nowrap;
+}
+
+.symbol-cell .badge-stack {
+  margin-top: 8px;
+}
+
+.symbol-cell .candidate-badge {
+  max-width: 100%;
+  white-space: normal;
+}
+
 .redwala-badge {
   color: var(--red);
   background: var(--red-soft);
   border-color: rgba(201, 42, 42, 0.25);
+}
+
+.pending-badge {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: rgba(178, 107, 0, 0.24);
 }
 
 .fno-badge {
@@ -709,6 +793,10 @@ tbody tr:hover {
 }
 
 @media (max-width: 760px) {
+  .opening-timeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .shell {
     width: min(100% - 20px, 1480px);
     padding-top: 18px;
@@ -748,4 +836,23 @@ tbody tr:hover {
   .backtest-metrics span {
     min-width: 0;
   }
+}
+
+/* Keep first-candle turnover beside the pinned stock and badges. */
+.live-table .first-turnover-cell {
+  position: sticky;
+  left: 240px;
+  z-index: 2;
+  min-width: 112px;
+  background: var(--panel);
+  box-shadow: 1px 0 0 var(--line);
+}
+.live-table th.first-turnover-cell { z-index: 3; background: #f5f8fd; }
+.live-table .candidate-row .first-turnover-cell { background: #f3faf7; }
+@media (max-width: 760px) {
+  .live-table thead th:first-child,
+  #stockRows > tr:not(.opening-detail-row) > td:first-child:not([colspan]) { display: none; }
+  .live-table .symbol-cell { width: 200px; min-width: 200px; max-width: 200px; }
+  .live-table .symbol-cell .symbol span { max-width: 170px; }
+  .live-table .first-turnover-cell { left: 200px; min-width: 110px; padding: 10px 8px; }
 }

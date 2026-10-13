@@ -173,10 +173,10 @@ def test_opening_candidate_badge_green_red(tmp_path) -> None:
     engine._client = lambda: object()  # type: ignore[method-assign]
     with engine._lock:
         engine._states = {
-            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
         }
 
-    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1_000_000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 105, 101, 102, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
@@ -187,9 +187,9 @@ def test_opening_candidate_badge_green_red(tmp_path) -> None:
     assert row["volume_multiplier"] == 5
     assert row["first_candle_color"] == "green"
     assert row["second_candle_color"] == "red"
-    assert row["first_candle_turnover"] == 104000
+    assert row["first_candle_turnover"] == 104_000_000
     assert len(row["opening_candles"]) == 2
-    assert "Matched 09:15/09:16: 09:15 green, 09:16 red" in row["candidate_reason"]
+    assert "First candle 09:15 green" in row["candidate_reason"]
 
 
 def test_opening_candidate_badge_red_green(tmp_path) -> None:
@@ -198,16 +198,16 @@ def test_opening_candidate_badge_red_green(tmp_path) -> None:
     engine._client = lambda: object()  # type: ignore[method-assign]
     with engine._lock:
         engine._states = {
-            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
         }
 
-    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1_000_000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 102, 97, 101, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
 
-    assert engine.evaluate_opening_candidates() == 1
-    assert engine.snapshot()["stocks"][0]["possible_candidate"] is True
+    assert engine.evaluate_opening_candidates() == 0
+    assert engine.snapshot()["stocks"][0]["possible_candidate"] is False
 
 
 def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
@@ -216,10 +216,10 @@ def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
     engine._client = lambda: object()  # type: ignore[method-assign]
     with engine._lock:
         engine._states = {
-            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
         }
 
-    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1000)
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 101, 96, 98, 1_000_000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 98, 99, 94, 95, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
@@ -227,7 +227,7 @@ def test_opening_candidate_badge_rejects_red_red(tmp_path) -> None:
     assert engine.evaluate_opening_candidates() == 0
     row = engine.snapshot()["stocks"][0]
     assert row["possible_candidate"] is False
-    assert "09:15/09:16: 09:15 red, 09:16 red" in row["candidate_reason"]
+    assert "First candle 09:15 red" in row["candidate_reason"]
 
 
 def test_opening_candidate_badge_accepts_green_green(tmp_path) -> None:
@@ -236,10 +236,10 @@ def test_opening_candidate_badge_accepts_green_green(tmp_path) -> None:
     engine._client = lambda: object()  # type: ignore[method-assign]
     with engine._lock:
         engine._states = {
-            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
         }
 
-    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1000)
+    first = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 100, 105, 99, 104, 1_000_000)
     second = Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 104, 108, 103, 107, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
@@ -247,7 +247,7 @@ def test_opening_candidate_badge_accepts_green_green(tmp_path) -> None:
     assert engine.evaluate_opening_candidates() == 1
     row = engine.snapshot()["stocks"][0]
     assert row["possible_candidate"] is True
-    assert "09:15/09:16: 09:15 green, 09:16 green" in row["candidate_reason"]
+    assert "First candle 09:15 green" in row["candidate_reason"]
 
 
 def test_opening_candidate_badge_handles_914_915_opposite_colors(tmp_path) -> None:
@@ -256,10 +256,10 @@ def test_opening_candidate_badge_handles_914_915_opposite_colors(tmp_path) -> No
     engine._client = lambda: object()  # type: ignore[method-assign]
     with engine._lock:
         engine._states = {
-            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+            "AAA": StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
         }
 
-    first = Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1000)
+    first = Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1_000_000)
     second = Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 104, 105, 101, 102, 1200)
     engine._fetch_opening_candles = lambda *_args, **_kwargs: [first, second]  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(first.start.date())
@@ -267,28 +267,28 @@ def test_opening_candidate_badge_handles_914_915_opposite_colors(tmp_path) -> No
     assert engine.evaluate_opening_candidates() == 1
     row = engine.snapshot()["stocks"][0]
     assert row["possible_candidate"] is True
-    assert "Matched 09:14/09:15: 09:14 green, 09:15 red" in row["candidate_reason"]
+    assert "First candle 09:14 green" in row["candidate_reason"]
 
 
 def test_opening_candidate_prefers_914_when_all_three_labels_exist(tmp_path) -> None:
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
-    state = StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200)
+    state = StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=200_000)
     state.daily_filter = passing_daily(date(2026, 9, 2))
     with engine._lock:
         engine._states = {"AAA": state}
     candles = [
-        Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1000),
+        Candle(datetime(2026, 9, 2, 9, 14, tzinfo=IST), 100, 105, 99, 104, 1_000_000),
         Candle(datetime(2026, 9, 2, 9, 15, tzinfo=IST), 104, 105, 101, 102, 1200),
         Candle(datetime(2026, 9, 2, 9, 16, tzinfo=IST), 102, 103, 99, 100, 900),
     ]
 
     assert engine._apply_opening_candidate("AAA", candles) is True
     row = engine.snapshot()["stocks"][0]
-    assert row["today_opening_volume"] == 1000
-    assert "Matched 09:14/09:15" in row["candidate_reason"]
+    assert row["today_opening_volume"] == 1_000_000
+    assert "First candle 09:14 green" in row["candidate_reason"]
 
 
-def test_live_opening_window_keeps_first_ten_candles_and_rest_replaces_websocket(tmp_path) -> None:
+def test_live_opening_window_keeps_first_five_candles_and_rest_replaces_websocket(tmp_path) -> None:
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
     trading_date = date(2026, 9, 24)
     instrument = Instrument("AAA", "123", "AAA LTD")
@@ -316,9 +316,9 @@ def test_live_opening_window_keeps_first_ten_candles_and_rest_replaces_websocket
     engine._merge_opening_candles(state, rest_candles)
 
     row = engine.snapshot()["stocks"][0]
-    assert len(row["opening_candles"]) == 10
+    assert len(row["opening_candles"]) == 5
     assert row["opening_candles"][0]["start"].endswith("T09:14:00+05:30")
-    assert row["opening_candles"][-1]["start"].endswith("T09:23:00+05:30")
+    assert row["opening_candles"][-1]["start"].endswith("T09:18:00+05:30")
     assert row["opening_candles"][1]["volume"] == 1001
 
 
@@ -360,12 +360,12 @@ def test_websocket_appends_completed_opening_candles(tmp_path) -> None:
 
 def test_opposite_colors_below_four_times_volume_is_not_candidate(tmp_path) -> None:
     engine = ScannerEngine(ConfigStore(tmp_path / "config.json"))
-    state = StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=300)
+    state = StockState(Instrument("AAA", "123", "AAA LTD"), opening_volume_average=300_000)
     with engine._lock:
         engine._states = {"AAA": state}
 
     candles = [
-        Candle(datetime(2026, 9, 23, 9, 15, tzinfo=IST), 100, 104, 99, 103, 1000),
+        Candle(datetime(2026, 9, 23, 9, 15, tzinfo=IST), 100, 104, 99, 103, 1_000_000),
         Candle(datetime(2026, 9, 23, 9, 16, tzinfo=IST), 103, 104, 100, 101, 500),
     ]
 
@@ -413,7 +413,12 @@ def test_historical_volume_samples_accept_914_fallback(tmp_path) -> None:
     assert samples == [{"date": "2026-09-22", "candle_start": "09:14", "volume": 450}]
 
 
-def test_cache_opening_volume_average_persists_samples_and_checks_today(tmp_path) -> None:
+def test_cache_opening_volume_average_persists_samples_and_checks_today(tmp_path, monkeypatch) -> None:
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 23, 10, tzinfo=IST)
+    monkeypatch.setattr("app.dhan_scanner.datetime", Clock)
     store = ConfigStore(tmp_path / "config.json")
     store.update_credentials("client", "token")
     engine = ScannerEngine(store)
@@ -422,18 +427,18 @@ def test_cache_opening_volume_average_persists_samples_and_checks_today(tmp_path
         engine._states = {"AAA": StockState(Instrument("AAA", "123", "AAA LTD"))}
 
     samples = [
-        {"date": "2026-09-22", "candle_start": "09:15", "volume": 100},
-        {"date": "2026-09-21", "candle_start": "09:15", "volume": 200},
-        {"date": "2026-09-18", "candle_start": "09:15", "volume": 300},
+        {"date": "2026-09-22", "candle_start": "09:15", "volume": 100_000},
+        {"date": "2026-09-21", "candle_start": "09:15", "volume": 200_000},
+        {"date": "2026-09-18", "candle_start": "09:15", "volume": 300_000},
     ]
     today = [
-        Candle(datetime(2026, 9, 23, 9, 15, tzinfo=IST), 100, 104, 99, 103, 1000),
+        Candle(datetime(2026, 9, 23, 9, 15, tzinfo=IST), 100, 104, 99, 103, 1_000_000),
         Candle(datetime(2026, 9, 23, 9, 16, tzinfo=IST), 103, 104, 100, 101, 500),
     ]
     engine._fetch_opening_volume_history = lambda *_args: (samples, today)  # type: ignore[method-assign]
     engine._fetch_daily_filter = lambda *_args: passing_daily(date(2026, 9, 23))
 
-    assert engine.cache_opening_volume_averages() == {"AAA": 200}
+    assert engine.cache_opening_volume_averages() == {"AAA": 200_000}
     row = engine.snapshot()["stocks"][0]
     assert row["volume_multiplier"] == 5
     assert row["possible_candidate"] is True
@@ -441,7 +446,12 @@ def test_cache_opening_volume_average_persists_samples_and_checks_today(tmp_path
     assert store.load().opening_volume_cache["AAA"]["daily_filter"]["passes"] is True
 
 
-def test_volume_average_cache_succeeds_before_opening_pair_is_complete(tmp_path) -> None:
+def test_volume_average_cache_succeeds_before_opening_pair_is_complete(tmp_path, monkeypatch) -> None:
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 9, 23, 10, tzinfo=IST)
+    monkeypatch.setattr("app.dhan_scanner.datetime", Clock)
     store = ConfigStore(tmp_path / "config.json")
     store.update_credentials("client", "token")
     engine = ScannerEngine(store)
@@ -509,7 +519,7 @@ def test_volume_cache_stops_batch_on_expired_token(tmp_path) -> None:
         calls += 1
         raise RuntimeError("Invalid_Authentication DH-901: token expired")
 
-    engine._fetch_opening_volume_history = expired  # type: ignore[method-assign]
+    engine._fetch_daily_filter = expired  # type: ignore[method-assign]
 
     with pytest.raises(RuntimeError, match="DH-901"):
         engine.cache_opening_volume_averages()
@@ -529,7 +539,7 @@ def test_backtest_date_calculates_candidate_and_fno_badge(tmp_path) -> None:
         engine._states = {"COALINDIA": StockState(instrument)}
 
     candles: list[Candle] = []
-    for offset, volume in ((3, 100), (2, 200), (1, 300)):
+    for offset, volume in ((3, 100_000), (2, 200_000), (1, 300_000)):
         trading_date = target_date - timedelta(days=offset)
         candles.extend(
             [
@@ -539,7 +549,7 @@ def test_backtest_date_calculates_candidate_and_fno_badge(tmp_path) -> None:
         )
     candles.extend(
         [
-            Candle(datetime.combine(target_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=15), 100, 105, 99, 104, 1000),
+            Candle(datetime.combine(target_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=15), 100, 105, 99, 104, 1_000_000),
             Candle(datetime.combine(target_date, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=16), 104, 105, 101, 102, 800),
         ]
     )
@@ -553,7 +563,7 @@ def test_backtest_date_calculates_candidate_and_fno_badge(tmp_path) -> None:
     assert result["candidate_count"] == 1
     row = result["stocks"][0]
     assert row["symbol"] == "COALINDIA"
-    assert row["opening_volume_average"] == 200
+    assert row["opening_volume_average"] == 200_000
     assert row["volume_multiplier"] == 5
     assert row["first_candle_color"] == "green"
     assert row["second_candle_color"] == "red"
