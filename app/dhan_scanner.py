@@ -20,6 +20,7 @@ from .daily_filter import apply_daily_volume_limit, calculate_daily_filter
 from .schemas import VolumeFilterSettings
 from .opening_filters import evaluate as evaluate_opening_filters, missing_history as missing_opening_history
 from .opening_patterns import first_high_broken, retest_sequence
+from .setup_price_filters import evaluate as evaluate_price_filters, missing_history as missing_price_history
 from .storage import DATA_DIR, ConfigStore
 
 try:
@@ -320,6 +321,15 @@ class ScannerEngine:
         self._running = False
         self._connected = False
         self._status = "Idle"
+        self._algo = None
+
+    @property
+    def algo(self):
+        with self._lock:
+            if self._algo is None:
+                from .algo_service import AlgoService
+                self._algo = AlgoService(self)
+            return self._algo
 
     def load_saved(self) -> None:
         config = self.store.load()
@@ -561,6 +571,10 @@ class ScannerEngine:
     def _prepare_daily(self, client: Any, state: StockState, session: date, *, need_five: bool = False) -> None:
         fetched = not self._daily_ready(state, session)
         first = state.confirmed_opening_candle
+        price_setup = ("possible" if first.color == "green" else "redwala" if first.color == "red" and first.open == first.high else "none") if first and first.start.date() == session else None
+        if any(missing_price_history(state.daily_filter, session, self.volume_filters, setup)
+               for setup in ([price_setup] if price_setup else ["possible", "redwala"])):
+            fetched = True
         # Optional opening history must not block Redwala or shared volume preparation.
         need_opening_history = need_five or bool(first and first.start.date() == session and first.color == "green")
         if need_opening_history and missing_opening_history(state.daily_filter, session, self.volume_filters):
@@ -597,6 +611,10 @@ class ScannerEngine:
 
         if fetched:
             self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+        price_missing = missing_price_history(state.daily_filter, session, self.volume_filters, price_setup)
+        if price_missing:
+            state.preparation_status = "unresolved"
+            raise RuntimeError(price_missing)
         missing = missing_opening_history(state.daily_filter, session, self.volume_filters)
         if need_opening_history and state.daily_filter["passes"] and missing:
             state.preparation_status = "unresolved"
@@ -807,8 +825,10 @@ class ScannerEngine:
         opening_checks = evaluate_opening_filters(daily_filter, session, signal.first.open, self.volume_filters)
         first_red = signal.first.color == "red"
         open_high = signal.first.open == signal.first.high
-        possible = bool(volume_pass and turnover_pass and daily_pass and open_cross_pass and opening_checks["passes"] and signal.first.color == "green")
-        redwala = bool(turnover_pass and first_red and open_high)
+        price_checks = evaluate_price_filters(daily_filter, session, signal.first.open, signal.first.close,
+                                             self.volume_filters, "possible" if signal.first.color == "green" else "redwala" if first_red and open_high else "none")
+        possible = bool(volume_pass and turnover_pass and daily_pass and open_cross_pass and opening_checks["passes"] and signal.first.color == "green" and price_checks["passes"])
+        redwala = bool(turnover_pass and first_red and open_high and price_checks["passes"])
         reason = (f"{signal.reason}; first candle turnover {signal.first.turnover:,.2f} INR "
                   f"> {turnover_min:,.2f} INR ({'pass' if turnover_pass else 'fail'})")
         if signal.first.color == "green" and opening_checks["reason"]:
@@ -834,7 +854,10 @@ class ScannerEngine:
                 reason = (f"Redwala: first candle red, Open = High; turnover {signal.first.turnover:,.2f} INR "
                           f"> {turnover_min:,.2f} INR ({'pass' if turnover_pass else 'fail'}); "
                           "daily and minute volume filters do not apply")
+        if price_checks["reason"]:
+            reason += "; " + price_checks["reason"]
         return {
+            "price_filter_unresolved": price_checks["reason"] if not price_checks["resolved"] else None,
             "possible_candidate": possible,
             "redwala_gira": redwala,
             "retest_base_eligible": bool(volume_pass and turnover_pass and daily_pass and first_red),
@@ -908,7 +931,7 @@ class ScannerEngine:
                     daily_filter = self._fetch_daily_filter(client, state.instrument, target_date)
                 except Exception as exc:
                     first = self._first_opening_candle([bar for bar in candles if bar.start.date() == target_date])
-                    if not (first and first.color == "red" and first.open == first.high):
+                    if self.volume_filters.redwala_open_previous_close or not (first and first.color == "red" and first.open == first.high):
                         raise
                     daily_filter = None
                     daily_error = str(exc)
@@ -1025,8 +1048,11 @@ class ScannerEngine:
         now = datetime.now(IST)
         completed = [bar for bar in target_candles if target_date < now.date() or bar.end <= now]
         pattern = self._retest_result(signal.first, completed, daily_filter, qualification)
+        if qualification["price_filter_unresolved"] and not pattern["retest_break"]:
+            raise RuntimeError(qualification["price_filter_unresolved"])
         qualification["qualifies_scan"] = qualification["qualifies_scan"] or pattern["retest_break"]
         return {
+            "data_warning": qualification["price_filter_unresolved"],
             **pattern,
             **self._redwala_breaks(signal.first, completed, daily_filter, qualification["redwala_gira"]),
             "previous_day_low_cross_second_candle": self._second_candle_pdl_cross(
@@ -1318,6 +1344,7 @@ class ScannerEngine:
             target.confirmation_status = "confirmed"
             missing = (missing_opening_history(target.daily_filter, signal.first.start.date(), self.volume_filters)
                        if signal.first.color == "green" else None)
+            missing = missing or qualification["price_filter_unresolved"]
             if (self.volume_filters.today_open_cross and signal.first.color == "green"
                     and self._five_day_close_level(target.daily_filter, signal.first.start.date()) is None):
                 missing = missing or "Today Open Cross needs five completed trading-session closes"

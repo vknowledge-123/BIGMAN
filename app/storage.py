@@ -68,8 +68,15 @@ class ConfigStore:
     def update_credentials(self, client_id: str, access_token: str) -> AppConfig:
         with self._lock:
             config = self.load()
-            config.client_id = client_id.strip()
-            config.access_token = access_token.strip()
+            client_id, access_token = client_id.strip(), access_token.strip()
+            if not client_id:
+                raise ValueError("Enter a Client ID")
+            if not access_token:
+                if client_id != config.client_id or not config.access_token:
+                    raise ValueError("Enter an access token for this Client ID")
+                return config  # Blank means keep this account's saved token.
+            config.client_id = client_id
+            config.access_token = access_token
             self.save(config)
             return config
 

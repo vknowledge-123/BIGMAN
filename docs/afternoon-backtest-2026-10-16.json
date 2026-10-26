@@ -1,0 +1,392 @@
+{
+  "scan_type": "afternoon",
+  "target_date": "2026-10-16",
+  "signals": [],
+  "range_rejections": [
+    {
+      "symbol": "PCJEWELLER",
+      "reason": "09:15\u201312:15 range 13.88% exceeds the 2% maximum",
+      "morning_range_percent": 13.87782204515271
+    },
+    {
+      "symbol": "STLTECH",
+      "reason": "09:15\u201312:15 range 6.64% exceeds the 2% maximum",
+      "morning_range_percent": 6.644299322988442
+    },
+    {
+      "symbol": "IIFL",
+      "reason": "09:15\u201312:15 range 3.89% exceeds the 2% maximum",
+      "morning_range_percent": 3.8865368331922174
+    },
+    {
+      "symbol": "ESDS",
+      "reason": "09:15\u201312:15 range 3.23% exceeds the 2% maximum",
+      "morning_range_percent": 3.233913100985391
+    },
+    {
+      "symbol": "GROWW",
+      "reason": "09:15\u201312:15 range 4.34% exceeds the 2% maximum",
+      "morning_range_percent": 4.33715220949263
+    },
+    {
+      "symbol": "TBZ",
+      "reason": "09:15\u201312:15 range 6.17% exceeds the 2% maximum",
+      "morning_range_percent": 6.1748251748251715
+    },
+    {
+      "symbol": "HFCL",
+      "reason": "09:15\u201312:15 range 7.57% exceeds the 2% maximum",
+      "morning_range_percent": 7.567226890756299
+    },
+    {
+      "symbol": "NETWEB",
+      "reason": "09:15\u201312:15 range 2.08% exceeds the 2% maximum",
+      "morning_range_percent": 2.0824388149420354
+    },
+    {
+      "symbol": "ORIENTELEC",
+      "reason": "09:15\u201312:15 range 7.15% exceeds the 2% maximum",
+      "morning_range_percent": 7.151756790431096
+    },
+    {
+      "symbol": "TATACOMM",
+      "reason": "09:15\u201312:15 range 3.62% exceeds the 2% maximum",
+      "morning_range_percent": 3.6151603498542273
+    },
+    {
+      "symbol": "MONEYVIEW",
+      "reason": "09:15\u201312:15 range 3.73% exceeds the 2% maximum",
+      "morning_range_percent": 3.7301992846193115
+    },
+    {
+      "symbol": "E2E",
+      "reason": "09:15\u201312:15 range 5.63% exceeds the 2% maximum",
+      "morning_range_percent": 5.634629493763753
+    },
+    {
+      "symbol": "CUPID",
+      "reason": "09:15\u201312:15 range 2.77% exceeds the 2% maximum",
+      "morning_range_percent": 2.77298850574712
+    },
+    {
+      "symbol": "KARURVYSYA",
+      "reason": "09:15\u201312:15 range 5.71% exceeds the 2% maximum",
+      "morning_range_percent": 5.705618951321681
+    },
+    {
+      "symbol": "ENRIN",
+      "reason": "09:15\u201312:15 range 3.46% exceeds the 2% maximum",
+      "morning_range_percent": 3.4607115611346044
+    },
+    {
+      "symbol": "SKYGOLD",
+      "reason": "09:15\u201312:15 range 6.41% exceeds the 2% maximum",
+      "morning_range_percent": 6.40594059405941
+    },
+    {
+      "symbol": "WELCORP",
+      "reason": "09:15\u201312:15 range 5.20% exceeds the 2% maximum",
+      "morning_range_percent": 5.2
+    },
+    {
+      "symbol": "MRPL",
+      "reason": "09:15\u201312:15 range 4.13% exceeds the 2% maximum",
+      "morning_range_percent": 4.129793510324483
+    },
+    {
+      "symbol": "HEROMOTORS",
+      "reason": "09:15\u201312:15 range 3.62% exceeds the 2% maximum",
+      "morning_range_percent": 3.6154312260149495
+    },
+    {
+      "symbol": "MARSONS",
+      "reason": "09:15\u201312:15 range 6.01% exceeds the 2% maximum",
+      "morning_range_percent": 6.005200715098315
+    },
+    {
+      "symbol": "IDBI",
+      "reason": "09:15\u201312:15 range 3.32% exceeds the 2% maximum",
+      "morning_range_percent": 3.3169533169533025
+    },
+    {
+      "symbol": "SOUTHBANK",
+      "reason": "09:15\u201312:15 range 3.65% exceeds the 2% maximum",
+      "morning_range_percent": 3.6525172754195485
+    },
+    {
+      "symbol": "AEROFLEX",
+      "reason": "09:15\u201312:15 range 5.72% exceeds the 2% maximum",
+      "morning_range_percent": 5.715695952616001
+    },
+    {
+      "symbol": "KANOHAR",
+      "reason": "09:15\u201312:15 range 7.05% exceeds the 2% maximum",
+      "morning_range_percent": 7.049345417925479
+    },
+    {
+      "symbol": "CCL",
+      "reason": "09:15\u201312:15 range 6.60% exceeds the 2% maximum",
+      "morning_range_percent": 6.598984771573605
+    },
+    {
+      "symbol": "SWSOLAR",
+      "reason": "09:15\u201312:15 range 2.65% exceeds the 2% maximum",
+      "morning_range_percent": 2.6508061107420966
+    },
+    {
+      "symbol": "GALLANTT",
+      "reason": "09:15\u201312:15 range 4.07% exceeds the 2% maximum",
+      "morning_range_percent": 4.073150457190358
+    },
+    {
+      "symbol": "JAICORPLTD",
+      "reason": "09:15\u201312:15 range 3.23% exceeds the 2% maximum",
+      "morning_range_percent": 3.232432432432427
+    },
+    {
+      "symbol": "SAMMAANCAP",
+      "reason": "09:15\u201312:15 range 4.63% exceeds the 2% maximum",
+      "morning_range_percent": 4.626388677522457
+    },
+    {
+      "symbol": "APARINDS",
+      "reason": "09:15\u201312:15 range 4.46% exceeds the 2% maximum",
+      "morning_range_percent": 4.455927051671733
+    },
+    {
+      "symbol": "AZAD",
+      "reason": "09:15\u201312:15 range 4.75% exceeds the 2% maximum",
+      "morning_range_percent": 4.745271450336304
+    },
+    {
+      "symbol": "TARIL",
+      "reason": "09:15\u201312:15 range 4.14% exceeds the 2% maximum",
+      "morning_range_percent": 4.138565297363581
+    },
+    {
+      "symbol": "TDPOWERSYS",
+      "reason": "09:15\u201312:15 range 5.22% exceeds the 2% maximum",
+      "morning_range_percent": 5.219322598556361
+    },
+    {
+      "symbol": "MVELECTRO",
+      "reason": "09:15\u201312:15 range 4.57% exceeds the 2% maximum",
+      "morning_range_percent": 4.573088717921127
+    },
+    {
+      "symbol": "SSRETAIL",
+      "reason": "09:15\u201312:15 range 7.25% exceeds the 2% maximum",
+      "morning_range_percent": 7.253813172137488
+    },
+    {
+      "symbol": "TIPSMUSIC",
+      "reason": "09:15\u201312:15 range 5.75% exceeds the 2% maximum",
+      "morning_range_percent": 5.750452079566004
+    },
+    {
+      "symbol": "63MOONS",
+      "reason": "09:15\u201312:15 range 3.88% exceeds the 2% maximum",
+      "morning_range_percent": 3.877094972067044
+    },
+    {
+      "symbol": "CHENNPETRO",
+      "reason": "09:15\u201312:15 range 4.06% exceeds the 2% maximum",
+      "morning_range_percent": 4.059491306222158
+    },
+    {
+      "symbol": "REDINGTON",
+      "reason": "09:15\u201312:15 range 2.37% exceeds the 2% maximum",
+      "morning_range_percent": 2.36763366723038
+    },
+    {
+      "symbol": "MTARTECH",
+      "reason": "09:15\u201312:15 range 3.04% exceeds the 2% maximum",
+      "morning_range_percent": 3.0399306809155897
+    },
+    {
+      "symbol": "MOMSBELIEF",
+      "reason": "09:15\u201312:15 range 11.47% exceeds the 2% maximum",
+      "morning_range_percent": 11.468126462771231
+    },
+    {
+      "symbol": "MEESHO",
+      "reason": "09:15\u201312:15 range 2.04% exceeds the 2% maximum",
+      "morning_range_percent": 2.0427446569178818
+    },
+    {
+      "symbol": "BAJAJCON",
+      "reason": "09:15\u201312:15 range 3.02% exceeds the 2% maximum",
+      "morning_range_percent": 3.0191537712368763
+    },
+    {
+      "symbol": "ANANTRAJ",
+      "reason": "09:15\u201312:15 range 2.18% exceeds the 2% maximum",
+      "morning_range_percent": 2.176870748299329
+    },
+    {
+      "symbol": "EMMVEE",
+      "reason": "09:15\u201312:15 range 5.74% exceeds the 2% maximum",
+      "morning_range_percent": 5.740913327120215
+    },
+    {
+      "symbol": "APOLLO",
+      "reason": "09:15\u201312:15 range 5.29% exceeds the 2% maximum",
+      "morning_range_percent": 5.29030710172745
+    },
+    {
+      "symbol": "ELECON",
+      "reason": "09:15\u201312:15 range 7.08% exceeds the 2% maximum",
+      "morning_range_percent": 7.0813196049590355
+    },
+    {
+      "symbol": "CPPLUS",
+      "reason": "09:15\u201312:15 range 3.31% exceeds the 2% maximum",
+      "morning_range_percent": 3.3131633766491397
+    },
+    {
+      "symbol": "FCL",
+      "reason": "09:15\u201312:15 range 3.32% exceeds the 2% maximum",
+      "morning_range_percent": 3.3200069528941363
+    },
+    {
+      "symbol": "KABRAEXTRU",
+      "reason": "09:15\u201312:15 range 10.52% exceeds the 2% maximum",
+      "morning_range_percent": 10.516795865633071
+    },
+    {
+      "symbol": "AEGISLOG",
+      "reason": "09:15\u201312:15 range 5.77% exceeds the 2% maximum",
+      "morning_range_percent": 5.76567241506921
+    },
+    {
+      "symbol": "KAVDEFENCE",
+      "reason": "09:15\u201312:15 range 7.39% exceeds the 2% maximum",
+      "morning_range_percent": 7.386489479512738
+    },
+    {
+      "symbol": "PINELABS",
+      "reason": "09:15\u201312:15 range 2.51% exceeds the 2% maximum",
+      "morning_range_percent": 2.5135623869801007
+    },
+    {
+      "symbol": "VAML",
+      "reason": "09:15\u201312:15 range 3.75% exceeds the 2% maximum",
+      "morning_range_percent": 3.747752731295813
+    },
+    {
+      "symbol": "INDOMIM",
+      "reason": "09:15\u201312:15 range 2.57% exceeds the 2% maximum",
+      "morning_range_percent": 2.566288686162495
+    },
+    {
+      "symbol": "SHOPERSTOP",
+      "reason": "09:15\u201312:15 range 12.63% exceeds the 2% maximum",
+      "morning_range_percent": 12.626613015124184
+    },
+    {
+      "symbol": "SBC",
+      "reason": "09:15\u201312:15 range 2.99% exceeds the 2% maximum",
+      "morning_range_percent": 2.990297439160176
+    },
+    {
+      "symbol": "ICICIAMC",
+      "reason": "09:15\u201312:15 range 2.36% exceeds the 2% maximum",
+      "morning_range_percent": 2.357430721495057
+    },
+    {
+      "symbol": "RPOWER",
+      "reason": "09:15\u201312:15 range 3.60% exceeds the 2% maximum",
+      "morning_range_percent": 3.6026200873362453
+    },
+    {
+      "symbol": "VIVIANA",
+      "reason": "09:15\u201312:15 range 10.49% exceeds the 2% maximum",
+      "morning_range_percent": 10.485312899106006
+    },
+    {
+      "symbol": "LOTUSDEV",
+      "reason": "09:15\u201312:15 range 4.82% exceeds the 2% maximum",
+      "morning_range_percent": 4.823479370480648
+    },
+    {
+      "symbol": "URBANCO",
+      "reason": "09:15\u201312:15 range 3.60% exceeds the 2% maximum",
+      "morning_range_percent": 3.601252609603347
+    },
+    {
+      "symbol": "PFOCUS",
+      "reason": "09:15\u201312:15 range 6.74% exceeds the 2% maximum",
+      "morning_range_percent": 6.740967104080532
+    },
+    {
+      "symbol": "CARTRADE",
+      "reason": "09:15\u201312:15 range 3.96% exceeds the 2% maximum",
+      "morning_range_percent": 3.9569593891010064
+    },
+    {
+      "symbol": "TEJASNET",
+      "reason": "09:15\u201312:15 range 3.45% exceeds the 2% maximum",
+      "morning_range_percent": 3.450513791238505
+    },
+    {
+      "symbol": "RITES",
+      "reason": "09:15\u201312:15 range 2.24% exceeds the 2% maximum",
+      "morning_range_percent": 2.2417434715821893
+    },
+    {
+      "symbol": "JPPOWER",
+      "reason": "09:15\u201312:15 range 3.46% exceeds the 2% maximum",
+      "morning_range_percent": 3.4599728629579363
+    },
+    {
+      "symbol": "PAISALO",
+      "reason": "09:15\u201312:15 range 3.43% exceeds the 2% maximum",
+      "morning_range_percent": 3.4348752663908853
+    },
+    {
+      "symbol": "JGCHEM",
+      "reason": "09:15\u201312:15 range 4.12% exceeds the 2% maximum",
+      "morning_range_percent": 4.123215145194938
+    },
+    {
+      "symbol": "UJJIVANSFB",
+      "reason": "09:15\u201312:15 range 3.38% exceeds the 2% maximum",
+      "morning_range_percent": 3.38269680436475
+    },
+    {
+      "symbol": "BBOX",
+      "reason": "09:15\u201312:15 range 5.19% exceeds the 2% maximum",
+      "morning_range_percent": 5.190944431740221
+    },
+    {
+      "symbol": "WELSPUNLIV",
+      "reason": "09:15\u201312:15 range 3.73% exceeds the 2% maximum",
+      "morning_range_percent": 3.7336993822923796
+    },
+    {
+      "symbol": "MARINE",
+      "reason": "09:15\u201312:15 range 3.04% exceeds the 2% maximum",
+      "morning_range_percent": 3.0413903498742307
+    },
+    {
+      "symbol": "MILKYMIST",
+      "reason": "09:15\u201312:15 range 3.11% exceeds the 2% maximum",
+      "morning_range_percent": 3.1063122923588113
+    },
+    {
+      "symbol": "GLAND",
+      "reason": "09:15\u201312:15 range 3.08% exceeds the 2% maximum",
+      "morning_range_percent": 3.082248776753317
+    },
+    {
+      "symbol": "AVALON",
+      "reason": "09:15\u201312:15 range 3.41% exceeds the 2% maximum",
+      "morning_range_percent": 3.4132933533233474
+    }
+  ],
+  "issues": [],
+  "tested_count": 84,
+  "matched_count": 0,
+  "matched_stock_count": 0,
+  "error_count": 0
+}

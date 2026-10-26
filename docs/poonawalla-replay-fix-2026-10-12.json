@@ -1,0 +1,111 @@
+{
+  "settings": {
+    "mode": "paper",
+    "first_direction": "long",
+    "sizing": "capital",
+    "quantity": 1,
+    "capital": 3000.0,
+    "target_pct": 4.0,
+    "stop_pct": 1.0,
+    "trailing": false,
+    "trailing_pct": 1,
+    "ladder": true,
+    "pyramiding": true,
+    "max_adds": 2,
+    "reference": "original",
+    "reversal_size": "initial",
+    "max_reversals": 20,
+    "max_loss": 150.0,
+    "square_off": "15:15",
+    "slippage_bps": 5.0,
+    "fee_per_order": 7.0,
+    "order_timeout_seconds": 15,
+    "max_quote_age_seconds": 5
+  },
+  "pnl": 115.4695738880323,
+  "gross_pnl": 157.4695738880323,
+  "costs": 42.0,
+  "fills": [
+    {
+      "id": "paper-1",
+      "qty": 6,
+      "price": 479.13944999999995,
+      "time": "2026-10-12T09:18:00+05:30",
+      "net_qty": 6,
+      "realized": 0
+    },
+    {
+      "id": "paper-2",
+      "qty": 6,
+      "price": 484.17280992224994,
+      "time": "2026-10-12T09:19:00+05:30",
+      "net_qty": 12,
+      "realized": 0
+    },
+    {
+      "id": "paper-3",
+      "qty": -18,
+      "price": 474.11088147224996,
+      "time": "2026-10-12T09:22:00+05:30",
+      "net_qty": -6,
+      "realized": -90.54298186649953
+    },
+    {
+      "id": "paper-4",
+      "qty": -6,
+      "price": 469.1350877711987,
+      "time": "2026-10-12T09:32:00+05:30",
+      "net_qty": -12,
+      "realized": -90.54298186649953
+    },
+    {
+      "id": "paper-5",
+      "qty": -6,
+      "price": 464.21151502503994,
+      "time": "2026-10-12T09:34:00+05:30",
+      "net_qty": -18,
+      "realized": -90.54298186649953
+    },
+    {
+      "id": "paper-6",
+      "qty": 18,
+      "price": 455.3740194364666,
+      "time": "2026-10-12T12:26:00+05:30",
+      "net_qty": 0,
+      "realized": 157.4695738880323
+    }
+  ],
+  "actions": [
+    {
+      "time": "2026-10-12T09:18:00+05:30",
+      "desired": 6,
+      "reason": "entry"
+    },
+    {
+      "time": "2026-10-12T09:19:00+05:30",
+      "desired": 12,
+      "reason": "add"
+    },
+    {
+      "time": "2026-10-12T09:22:00+05:30",
+      "desired": -6,
+      "reason": "reverse"
+    },
+    {
+      "time": "2026-10-12T09:32:00+05:30",
+      "desired": -12,
+      "reason": "add"
+    },
+    {
+      "time": "2026-10-12T09:34:00+05:30",
+      "desired": -18,
+      "reason": "add"
+    },
+    {
+      "time": "2026-10-12T12:26:00+05:30",
+      "desired": 0,
+      "reason": "target"
+    }
+  ],
+  "model": "One-minute OHLC simulation: an opening high/low is visited first, without an assumed revisit; otherwise adverse extreme first. Intraminute order is assumed, not observed. Times identify candles, not exact fill seconds. Gaps fill at open; configurable slippage and per-order costs. Not tick-accurate."
+}

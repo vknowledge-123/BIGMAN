@@ -41,6 +41,24 @@ def test_symbols_endpoint_rejects_empty_list() -> None:
     assert response.status_code == 400
 
 
+def test_saved_credentials_survive_refresh_and_blank_save_without_exposing_token():
+    with TestClient(app) as client:
+        assert client.post('/api/credentials', json={'client_id': '  TEST  ', 'access_token': '  SECRET_TEST  '}).status_code == 200
+        for _ in range(2):
+            response = client.get('/api/config')
+            assert response.json()['client_id'] == 'TEST'
+            assert response.json()['has_credentials']
+            assert 'SECRET_TEST' not in response.text
+            assert 'access_token' not in response.json()
+            assert response.headers['cache-control'] == 'no-store'
+        assert client.post('/api/credentials', json={'client_id': 'TEST', 'access_token': ''}).status_code == 200
+        assert scanner.store.load().access_token == 'SECRET_TEST'
+        assert client.post('/api/credentials', json={'client_id': 'OTHER', 'access_token': ''}).status_code == 400
+        assert client.post('/api/credentials', json={'client_id': ' ', 'access_token': 'NEW'}).status_code == 422
+        saved = ConfigStore(scanner.store.path).load()
+        assert saved.client_id == 'TEST' and saved.access_token == 'SECRET_TEST'
+
+
 def test_dashboard_versions_assets_and_does_not_cache_html(monkeypatch, tmp_path):
     static = tmp_path / "static"
     static.mkdir()
@@ -71,7 +89,9 @@ def test_dashboard_serves_current_versioned_filter_script():
 
 def test_volume_settings_endpoint_persists_and_returns_current_settings():
     settings = {"daily_volume_max": 2.5, "minute_volume_min": 6, "first_candle_turnover_min": 12_500_000, "today_open_cross": True,
-                "monthly_filter": True, "last_two_days_filter": True}
+                "monthly_filter": True, "last_two_days_filter": True,
+                "redwala_open_previous_close": True, "redwala_open_gap_max": 1.25,
+                "pdhl_filter": True, "pdhl_max": 4.5}
     with TestClient(app) as client:
         assert client.post("/api/volume-filters", json=settings).status_code == 200
         assert client.get("/api/config").json()["volume_filters"] == settings
@@ -80,6 +100,9 @@ def test_volume_settings_endpoint_persists_and_returns_current_settings():
             for value in (0, -2, "NaN", "Infinity"):
                 response = client.post("/api/volume-filters", json={**settings, field: value})
                 assert response.status_code == 422
+        for field in ("redwala_open_gap_max", "pdhl_max"):
+            for value in (-1, "NaN", "Infinity"):
+                assert client.post("/api/volume-filters", json={**settings, field: value}).status_code == 422
         assert client.get("/api/config").json()["volume_filters"] == settings
 
 
@@ -154,3 +177,23 @@ def test_removed_premarket_setup_cannot_start_or_backtest(monkeypatch):
 
 
 
+
+
+
+def test_afternoon_feature_removed_without_removing_scanner_or_algo(monkeypatch):
+    monkeypatch.setattr(scanner, '_algo', None)
+    with TestClient(app) as client:
+        for action in ('start', 'stop', 'backtest'):
+            response = client.post('/api/afternoon/' + action, json={'target_date': '2026-10-16'})
+            assert response.status_code == 404
+        state = client.get('/api/state').json()
+        assert 'afternoon' not in state
+        assert 'stocks' in state and 'algo' in state
+        assert not hasattr(scanner, 'afternoon')
+        routes = client.get('/openapi.json').json()['paths']
+        for route in ('/api/start', '/api/stop', '/api/cache-volume', '/api/backtest',
+                      '/api/algo/start', '/api/algo/backtest', '/api/algo/{session_id}/exit'):
+            assert route in routes
+        page = client.get('/').text
+        assert 'afternoon' not in page.lower()
+        assert 'openingLiveResults' in page and 'algoSettingsForm' in page

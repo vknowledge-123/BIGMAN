@@ -20,6 +20,7 @@ from .schemas import (
     VolumeFilterSettings,
 )
 from .storage import ConfigStore
+from .algo_strategy import AlgoSettings, AlgoStart, AlgoBacktest
 
 
 ROOT = Path(__file__).resolve().parent
@@ -33,10 +34,20 @@ scanner = ScannerEngine(store)
 async def lifespan(_app: FastAPI):
     scanner.load_saved()
     yield
+    if scanner._algo is not None:
+        scanner._algo.shutdown()
     scanner.stop()
 
 
 app = FastAPI(title="Dhan Turnover Scanner", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def prevent_cached_api_state(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -71,8 +82,11 @@ def save_volume_filters(payload: VolumeFilterSettings) -> MessageOut:
 
 @app.post("/api/credentials", response_model=MessageOut)
 def save_credentials(payload: CredentialsIn) -> MessageOut:
-    store.update_credentials(payload.client_id, payload.access_token)
-    return MessageOut(ok=True, message="Credentials saved")
+    try:
+        store.update_credentials(payload.client_id, payload.access_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return MessageOut(ok=True, message="Credentials saved; reused automatically after browser refresh")
 
 
 @app.post("/api/symbols", response_model=MessageOut)
@@ -159,4 +173,45 @@ def repair_missing() -> MessageOut:
 
 @app.get("/api/state", response_model=StateOut)
 def get_state() -> dict:
-    return scanner.snapshot()
+    return {**scanner.snapshot(), "algo": scanner.algo.snapshot()}
+
+
+@app.post('/api/algo/settings', response_model=MessageOut)
+def save_algo_settings(payload: AlgoSettings):
+    scanner.algo.save_settings(payload)
+    return MessageOut(ok=True, message='Algo defaults saved; active sessions keep their original settings')
+
+
+@app.post('/api/algo/start')
+def start_algo(payload: AlgoStart):
+    try:
+        session_id = scanner.algo.start(payload)
+        return {'ok': True, 'session_id': session_id, 'message': f'{payload.settings.mode.title()} algo queued for {payload.symbol}'}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post('/api/algo/{session_id}/exit', response_model=MessageOut)
+def exit_algo(session_id: str):
+    try:
+        scanner.algo.command(session_id, 'exit')
+        return MessageOut(ok=True, message='Exit requested; waiting for reconciled flat position')
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post('/api/algo/{session_id}/resume', response_model=MessageOut)
+def resume_algo(session_id: str):
+    try:
+        scanner.algo.command(session_id, 'resume')
+        return MessageOut(ok=True, message='Reconciliation requested before resuming')
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post('/api/algo/backtest')
+def backtest_algo(payload: AlgoBacktest):
+    try:
+        return scanner.algo.backtest(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

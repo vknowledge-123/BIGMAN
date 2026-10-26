@@ -14,11 +14,16 @@ class VolumeFilterSettings(BaseModel):
     today_open_cross: bool = False
     monthly_filter: bool = False
     last_two_days_filter: bool = False
+    redwala_open_previous_close: bool = False
+    redwala_open_gap_max: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    pdhl_filter: bool = False
+    pdhl_max: float = Field(default=4.0, ge=0, allow_inf_nan=False)
 
 
 class CredentialsIn(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
     client_id: str = Field(min_length=1)
-    access_token: str = Field(min_length=1)
+    access_token: str = ""
 
 
 class SymbolsIn(BaseModel):
@@ -131,6 +136,7 @@ class StockRow(QualificationFields):
 
 
 class StateOut(BaseModel):
+    algo: dict = Field(default_factory=dict)
     volume_filters: VolumeFilterSettings = Field(default_factory=VolumeFilterSettings)
     running: bool
     connected: bool

@@ -11,7 +11,7 @@ function dashboard() {
     document: {
       querySelector(selector) {
         if (!elements.has(selector)) elements.set(selector, {
-          innerHTML: '', textContent: '', style: {}, hidden: false,
+          innerHTML: '', textContent: '', value: '', style: {}, hidden: false,
           listeners: {}, addEventListener(name, handler) { this.listeners[name] = handler; },
           setAttribute() {}, classList: { toggle() {} },
         });
@@ -24,6 +24,8 @@ function dashboard() {
   elements.get('#dailyVolumeMax').value = '4';
   elements.get('#minuteVolumeMin').value = '4';
   elements.get('#firstCandleTurnoverMin').value = '3';
+  elements.get('#redwalaOpenGapMax').value = '1';
+  elements.get('#pdhlMax').value = '4';
   return { context, elements };
 }
 
@@ -45,6 +47,15 @@ function fixtures() {
     { ...base, symbol: 'APIERROR', qualifies_scan: false, error: 'Daily history missing' },
   ];
 }
+
+test('API validation errors show the field and reason instead of object Object', async () => {
+  const {context} = dashboard();
+  context.fetch = async () => ({ok: false, json: async () => ({detail: [
+    {loc: ['body', 'settings', 'stop_pct'], msg: 'Input should be less than 100'}
+  ]})});
+  await assert.rejects(vm.runInContext("api('/api/algo/start')", context),
+    /settings.stop_pct: Input should be less than 100/);
+});
 
 test('daily history warnings label Redwala as partial and preserve all failure details', () => {
   const { context, elements } = dashboard();
@@ -268,7 +279,7 @@ test('new opening filters show exact rules in live summaries', () => {
     const description = vm.runInContext(`${fn}(settings)`, context);
     assert.match(description, /Monthly Filter ON \(open > highest close of prior 20 trading sessions\)/);
     assert.match(description, /both green: no extra condition; red\/doji: open > both prior closes/);
-    assert.match(description, /Redwala uses only turnover plus a red first candle with open = high; volume and opening filters do not apply/);
+    assert.match(description, /Redwala: turnover plus a red first candle with open = high; volume filters do not apply/);
   }
 });
 
@@ -285,6 +296,101 @@ test('filter form submits both toggles and restores saved selections', async () 
   elements.get('#volumeFiltersForm').listeners.submit({preventDefault() {}});
   assert.equal(context.submitted.monthly_filter, false);
   assert.equal(context.submitted.last_two_days_filter, true);
+});
+
+test('background config refresh preserves toggle drafts and typed credentials', async () => {
+  const {context, elements} = dashboard();
+  context.fetch = async () => ({ok: true, json: async () => ({client_id: 'SAVED', has_credentials: true,
+    symbols_text: 'AAA', volume_filters: {monthly_filter: true}})});
+  await vm.runInContext('refreshConfig()', context);
+  assert.equal(elements.get('#clientId').value, 'SAVED');
+  assert.equal(elements.get('#accessToken').value, '');
+  assert.equal(elements.get('#accessToken').required, false);
+  assert.match(elements.get('#credentialsStatus').textContent, /Credentials saved/);
+  elements.get('#monthlyFilter').checked = false;
+  elements.get('#pdhlFilter').checked = true;
+  elements.get('#pdhlMax').value = '2.75';
+  elements.get('#clientId').value = 'EDITED';
+  elements.get('#accessToken').value = 'NEW_TOKEN';
+  elements.get('#symbolsText').value = 'NEW_SYMBOL';
+  await vm.runInContext('refreshConfig()', context);
+  assert.equal(elements.get('#monthlyFilter').checked, false);
+  assert.equal(elements.get('#pdhlFilter').checked, true);
+  assert.equal(elements.get('#pdhlMax').value, '2.75');
+  assert.equal(elements.get('#clientId').value, 'EDITED');
+  assert.equal(elements.get('#accessToken').value, 'NEW_TOKEN');
+  assert.equal(elements.get('#accessToken').required, true);
+  assert.equal(elements.get('#symbolsText').value, 'NEW_SYMBOL');
+  assert.match(elements.get('#filterChangesStatus').textContent, /Unapplied/);
+});
+
+test('initial slow config load preserves fields edited while it runs', async () => {
+  const {context, elements} = dashboard();
+  let finish;
+  context.fetch = () => new Promise(resolve => { finish = resolve; });
+  const request = vm.runInContext('refreshConfig()', context);
+  elements.get('#pdhlFilter').checked = true;
+  elements.get('#volumeFiltersForm').listeners.change({target: {id: 'pdhlFilter'}});
+  elements.get('#clientId').value = 'TYPED';
+  finish({ok: true, json: async () => ({client_id: 'SAVED', has_credentials: true,
+    volume_filters: {monthly_filter: true, pdhl_filter: false, pdhl_max: 3.25}})});
+  await request;
+  assert.equal(elements.get('#pdhlFilter').checked, true);
+  assert.equal(elements.get('#monthlyFilter').checked, true);
+  assert.equal(elements.get('#pdhlMax').value, 3.25);
+  assert.equal(elements.get('#clientId').value, 'TYPED');
+});
+
+test('late initial algo state and later polls preserve edited algo toggles', () => {
+  const {context, elements} = dashboard();
+  elements.get('#algoSessions').querySelectorAll = () => [];
+  vm.runInContext("qs('#algoTrailing').checked = true; qs('#algoLadder').checked = true", context);
+  elements.get('#algoSettingsForm').listeners.change();
+  vm.runInContext('renderAlgo({settings: {trailing: false, ladder: false}, sessions: []})', context);
+  vm.runInContext('renderAlgo({settings: {trailing: false, ladder: false}, sessions: []})', context);
+  assert.equal(elements.get('#algoTrailing').checked, true);
+  assert.equal(elements.get('#algoLadder').checked, true);
+});
+
+test('stale config response cannot replace newly saved filter state', async () => {
+  const {context, elements} = dashboard();
+  context.fetch = async () => ({ok: true, json: async () => ({volume_filters: {pdhl_filter: false}})});
+  await vm.runInContext('refreshConfig()', context);
+  let finish;
+  context.fetch = (url) => url === '/api/config' ? new Promise(resolve => { finish = resolve; })
+    : Promise.resolve({ok: true, json: async () => ({stocks: [], unresolved_symbols: [], message: 'Saved'})});
+  const stale = vm.runInContext('refreshConfig()', context);
+  elements.get('#pdhlFilter').checked = true;
+  await vm.runInContext('saveFilterSettings(readFilterSettings())', context);
+  finish({ok: true, json: async () => ({volume_filters: {pdhl_filter: false}})});
+  await stale;
+  assert.equal(elements.get('#pdhlFilter').checked, true);
+  assert.match(elements.get('#activeVolumeFilters').textContent, /PDHL ON/);
+  assert.match(elements.get('#filterChangesStatus').textContent, /Selected filters are saved/);
+});
+
+test('setup-specific price controls round trip decimals and reject invalid percentages', async () => {
+  const {context, elements} = dashboard();
+  context.fetch = async () => ({ok: true, json: async () => ({volume_filters: {
+    redwala_open_previous_close: true, redwala_open_gap_max: 1.25, pdhl_filter: true, pdhl_max: 3.75
+  }})});
+  await vm.runInContext('refreshConfig()', context);
+  assert.equal(elements.get('#redwalaOpenPreviousClose').checked, true);
+  assert.equal(elements.get('#pdhlFilter').checked, true);
+  const settings = vm.runInContext('readFilterSettings()', context);
+  assert.equal(settings.redwala_open_gap_max, 1.25);
+  assert.equal(settings.pdhl_max, 3.75);
+  const summary = vm.runInContext('filterDescription(readFilterSettings())', context);
+  assert.match(summary, /Possible Candidates only/);
+  assert.match(summary, /first open > previous close > first close/);
+  for (const id of ['#redwalaOpenGapMax', '#pdhlMax']) {
+    for (const value of ['', '-1', 'NaN', 'Infinity']) {
+      elements.get(id).value = value;
+      assert.throws(() => vm.runInContext('readFilterSettings()', context), /percentages/);
+    }
+    elements.get(id).value = '0';
+    assert.doesNotThrow(() => vm.runInContext('readFilterSettings()', context));
+  }
 });
 
 test('turnover captions use live settings and preserve each backtest threshold', () => {
@@ -438,4 +544,50 @@ test('live matches are visible as awaiting confirmation without final badges or 
   assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Awaiting confirmation/);
   assert.match(elements.get('#stockRows').innerHTML, /previous day high cross/);
   assert.equal(elements.get('#stockCount').textContent, '1/1');
+});
+
+
+test('opening setups and algo start controls remain visible after 13:30 IST', () => {
+  const { context, elements } = dashboard();
+  const stocks = fixtures().map(row => ({...row, confirmation_status: 'confirmed'}));
+  context.state = {stocks, status: 'Live', unresolved_symbols: [], updated_at: '2026-10-16T14:00:00+05:30'};
+  vm.runInContext('renderState(state)', context);
+  const html = elements.get('#stockRows').innerHTML;
+  assert.match(html, /GREENPAIR/);
+  assert.match(html, /REDPAIR/);
+  assert.equal((html.match(/data-algo-action="start"/g) || []).length, 2);
+  assert.equal(elements.has('#afternoonStartButton'), false);
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8'), /afternoon/i);
+});
+
+
+test('badge stocks sort by first-candle turnover across both setups', () => {
+  const { context, elements } = dashboard();
+  const stocks = [
+    {...fixtures()[0],symbol:'PLAIN',first_candle_turnover:990000000},
+    {...fixtures()[1],symbol:'RED19',previous_day_low_cross:true,first_candle_turnover:190000000,candle_turnover:900000000},
+    {...fixtures()[0],symbol:'GREEN20',first_candle_high_break:true,first_candle_turnover:200000000,candle_turnover:1},
+    {...fixtures()[0],symbol:'TIE20',previous_day_high_cross:true,first_candle_turnover:200000000},
+    {...fixtures()[1],symbol:'MISSING',first_candle_low_break:true,first_candle_turnover:null},
+    {...fixtures()[0],symbol:'PROVISIONAL',first_candle_high_break:true,first_candle_turnover:500000000,awaiting_confirmation:true},
+  ];
+  context.state={stocks,status:'Live',unresolved_symbols:[]};
+  vm.runInContext('renderState(state)', context);
+  const symbols=()=>[...elements.get('#stockRows').innerHTML.matchAll(/<strong>(PLAIN|RED19|GREEN20|TIE20|MISSING|PROVISIONAL)<\/strong>/g)].map(m=>m[1]);
+  assert.deepEqual(symbols(),['GREEN20','TIE20','RED19','MISSING','PLAIN','PROVISIONAL']);
+  stocks[0].previous_day_high_cross=true;
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(),['PLAIN','GREEN20','TIE20','RED19','MISSING','PROVISIONAL']);
+  elements.get('#setupFilter').value='redwala';
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(),['RED19','MISSING']);
+  assert.equal(stocks[0].symbol,'PLAIN');
+});
+
+test('explicit first direction overrides setup direction in the live confirmation', () => {
+  const {context}=dashboard();
+  assert.equal(vm.runInContext("algoFirstSide({first_direction:'short'}, 'possible')",context),'SELL');
+  assert.equal(vm.runInContext("algoFirstSide({first_direction:'long'}, 'redwala')",context),'BUY');
+  assert.equal(vm.runInContext("algoFirstSide({}, 'possible')",context),'BUY');
+  assert.equal(vm.runInContext("algoFirstSide({}, 'redwala')",context),'SELL');
 });

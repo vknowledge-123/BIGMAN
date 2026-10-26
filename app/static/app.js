@@ -8,6 +8,10 @@ const els = {
   todayOpenCross: qs("#todayOpenCross"),
   monthlyFilter: qs("#monthlyFilter"),
   lastTwoDaysFilter: qs("#lastTwoDaysFilter"),
+  redwalaOpenPreviousClose: qs("#redwalaOpenPreviousClose"),
+  redwalaOpenGapMax: qs("#redwalaOpenGapMax"),
+  pdhlFilter: qs("#pdhlFilter"),
+  pdhlMax: qs("#pdhlMax"),
   setupFilter: qs("#setupFilter"),
   liveTurnoverSummary: qs("#liveTurnoverSummary"),
   backtestTurnoverSummary: qs("#backtestTurnoverSummary"),
@@ -18,6 +22,7 @@ const els = {
   symbolsForm: qs("#symbolsForm"),
   clientId: qs("#clientId"),
   accessToken: qs("#accessToken"),
+  credentialsStatus: qs("#credentialsStatus"),
   symbolsText: qs("#symbolsText"),
   cacheButton: qs("#cacheButton"),
   volumeCacheButton: qs("#volumeCacheButton"),
@@ -61,7 +66,7 @@ function filterDescription(settings = {}) {
 }
 
 function additionalOpeningDescription(settings = {}) {
-  return `Monthly Filter ${settings.monthly_filter ? "ON (open > highest close of prior 20 trading sessions)" : "OFF"}; Last 2 Days Filter ${settings.last_two_days_filter ? "ON (both green: no extra condition; red/doji: open > both prior closes)" : "OFF"}; Redwala uses only turnover plus a red first candle with open = high; volume and opening filters do not apply`;
+  return `Monthly Filter ${settings.monthly_filter ? "ON (open > highest close of prior 20 trading sessions)" : "OFF"}; Last 2 Days Filter ${settings.last_two_days_filter ? "ON (both green: no extra condition; red/doji: open > both prior closes)" : "OFF"}; PDHL ${settings.pdhl_filter ? `ON (Possible Candidates only: (previous high - low) / low ≤ ${settings.pdhl_max ?? 4}%)` : "OFF"}; Redwala: turnover plus a red first candle with open = high; volume filters do not apply; Redwala Open / Previous Close ${settings.redwala_open_previous_close ? `ON (gap ≤ ${settings.redwala_open_gap_max ?? 1}%; first open > previous close > first close)` : "OFF"}`;
 }
 
 function turnoverDescription(settings = {}) {
@@ -205,6 +210,7 @@ async function api(path, options = {}, timeoutMs = 0) {
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await fetch(path, {
+      cache: "no-store",
       headers: { "Content-Type": "application/json" },
       ...options,
       ...(controller ? { signal: controller.signal } : {}),
@@ -214,7 +220,11 @@ async function api(path, options = {}, timeoutMs = 0) {
       return {};
     });
     if (!response.ok) {
-      throw new Error(payload.detail || payload.message || "Request failed");
+      const detail = payload.detail || payload.message;
+      const message = Array.isArray(detail)
+        ? detail.map(item => `${(item.loc || []).filter(part => part !== 'body').join('.')}: ${item.msg || 'Invalid value'}`).join('; ')
+        : typeof detail === 'string' ? detail : 'Request failed';
+      throw new Error(message);
     }
     return payload;
   } finally {
@@ -251,7 +261,7 @@ function matchesSetup(row) {
   return true;
 }
 
-// Stable sort preserves the scanner order within each priority group.
+// Preserve existing breakout-badge priority; ties keep the scanner order.
 function hasBreakoutBadge(row) {
   if (row.awaiting_confirmation) return false;
   return Boolean((row.possible_candidate && (row.first_candle_high_break || row.previous_day_high_cross))
@@ -259,14 +269,25 @@ function hasBreakoutBadge(row) {
       || row.previous_day_low_cross_second_candle)));
 }
 
+function compareLiveStocks(a, b) {
+  const priority = Number(hasBreakoutBadge(b)) - Number(hasBreakoutBadge(a));
+  if (priority) return priority;
+  if (!hasBreakoutBadge(a)) return 0;
+  const turnover = row => Number.isFinite(row.first_candle_turnover) && row.first_candle_turnover >= 0
+    ? row.first_candle_turnover : -1;
+  return turnover(b) - turnover(a);
+}
+
 function renderState(state) {
   lastLiveState = state;
+  updateAlgoBacktestStale();
+  renderAlgo(state.algo);
   els.liveTurnoverSummary.textContent = `Showing setups with ${turnoverDescription(state.volume_filters)} (volume × close).`;
   els.connectionBadge.textContent = state.connected ? "Live Connected" : state.running ? "Connecting" : "Idle";
   els.connectionBadge.className = `badge ${state.connected ? "live" : state.status.toLowerCase().includes("error") ? "error" : "neutral"}`;
   els.updatedAt.textContent = `Updated ${fmtTime(state.updated_at)}`;
   const visibleStocks = state.stocks.filter((row) => (row.qualifies_scan === true || row.awaiting_confirmation) && matchesSetup(row))
-    .sort((a, b) => Number(hasBreakoutBadge(b)) - Number(hasBreakoutBadge(a)));
+    .sort(compareLiveStocks);
   const confirmedCount = state.stocks.filter((row) => row.qualifies_scan === true).length;
   const awaitingCount = state.stocks.filter((row) => row.awaiting_confirmation).length;
   els.stockCount.textContent = `${confirmedCount}/${state.stocks.length}`;
@@ -311,6 +332,7 @@ function renderState(state) {
             <span>${escapeHtml(row.name || row.security_id || "")}</span>
           </div>
           <div class="badge-stack">${candidateBadge}${fnoBadge}</div>
+          ${algoRowButton(row, false)}
         </td>
         <td class="first-turnover-cell"><strong>${fmtTurnover(row.first_candle_turnover)}</strong></td>
         <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
@@ -357,6 +379,7 @@ function setActiveView(view) {
 }
 
 function renderBacktest(result) {
+  qs('#openingBacktestResults').hidden = false;
   lastBacktestResult = result;
   const dataIssues = result.stocks.filter(row => row.error || row.data_warning)
     .map(row => `${row.symbol}: ${row.error || row.data_warning}`);
@@ -404,6 +427,7 @@ function renderBacktest(result) {
             <span>${escapeHtml(row.name || row.security_id || "")}</span>
           </div>
           <div class="badge-stack">${candidateBadge}${fnoBadge}</div>
+          ${algoRowButton(row, true)}
         </td>
         <td>${fmtBacktestCandle(row.first_candle_start, row.first_candle_color)}</td>
         <td title="First-candle turnover: ${fmtTurnover(row.first_candle_turnover)}">${fmtInt(row.first_candle_volume)}</td>
@@ -452,20 +476,68 @@ async function runBacktest() {
   }
 }
 
+let configRequest = 0;
+let filterWriteRevision = 0;
+const editedFilterFields = new Set();
+let credentialsRevision = 0;
+let loadedCredentials = {client_id: "", has_credentials: false};
+let configLoaded = false;
+
+function renderCredentialsStatus() {
+  const reusable = loadedCredentials.has_credentials && els.clientId.value.trim() === loadedCredentials.client_id;
+  els.accessToken.required = !reusable;
+  els.accessToken.placeholder = reusable ? "Saved token — leave blank to keep" : "Enter access token";
+  els.credentialsStatus.textContent = reusable
+    ? "Credentials saved on this server and reused after refresh. Token hidden; enter a new token only to replace it."
+    : "Enter Client ID and access token, then Save. Credentials are kept on this server.";
+}
+els.clientId.addEventListener("input", renderCredentialsStatus);
+
 async function refreshConfig() {
+  const request = ++configRequest;
+  const revision = filterWriteRevision;
+  const credentialRevision = credentialsRevision;
+  const clientBefore = els.clientId.value;
+  const symbolsBefore = els.symbolsText.value;
   const config = await api("/api/config");
-  els.clientId.value = config.client_id || "";
-  if (config.symbols_text) els.symbolsText.value = config.symbols_text;
+  if (request !== configRequest) return;
+  if (credentialRevision === credentialsRevision) {
+    loadedCredentials = {client_id: config.client_id || "", has_credentials: Boolean(config.has_credentials)};
+    if (!configLoaded && els.clientId.value === clientBefore) els.clientId.value = loadedCredentials.client_id;
+    renderCredentialsStatus();
+  }
+  if (!configLoaded && els.symbolsText.value === symbolsBefore) els.symbolsText.value = config.symbols_text || "";
   els.cachedCount.textContent = config.cached_volume_count;
-  els.dailyVolumeMax.value = config.volume_filters?.daily_volume_max ?? 4;
-  els.minuteVolumeMin.value = config.volume_filters?.minute_volume_min ?? 4;
-  els.firstCandleTurnoverMin.value = (config.volume_filters?.first_candle_turnover_min ?? 30000000) / 10000000;
-  els.todayOpenCross.checked = config.volume_filters?.today_open_cross ?? false;
-  els.monthlyFilter.checked = config.volume_filters?.monthly_filter ?? false;
-  els.lastTwoDaysFilter.checked = config.volume_filters?.last_two_days_filter ?? false;
-  els.activeVolumeFilters.textContent = `Saved: ${filterDescription(config.volume_filters)}`;
-  savedFilterSettings = readFilterSettings();
+  // Only hydrate once. Background actions must never replace the user's draft.
+  if (revision === filterWriteRevision && !configLoaded) {
+    const s = normalizedFilterSettings(config.volume_filters);
+    for (const [id, value] of Object.entries({dailyVolumeMax: s.daily_volume_max,
+      minuteVolumeMin: s.minute_volume_min, firstCandleTurnoverMin: s.first_candle_turnover_min / 10000000,
+      todayOpenCross: s.today_open_cross, monthlyFilter: s.monthly_filter,
+      lastTwoDaysFilter: s.last_two_days_filter, redwalaOpenPreviousClose: s.redwala_open_previous_close,
+      redwalaOpenGapMax: s.redwala_open_gap_max, pdhlFilter: s.pdhl_filter, pdhlMax: s.pdhl_max})) {
+      if (!editedFilterFields.has(id) && !editedFilterFields.has('*')) {
+        els[id][typeof value === 'boolean' ? 'checked' : 'value'] = value;
+      }
+    }
+  }
+  if (revision === filterWriteRevision) {
+    els.activeVolumeFilters.textContent = `Saved: ${filterDescription(config.volume_filters)}`;
+    savedFilterSettings = normalizedFilterSettings(config.volume_filters);
+  }
+  if (!configLoaded) {
+    els.saveVolumeFilters.disabled = false;
+    els.saveVolumeFilters.textContent = "Save & Apply";
+  }
+  configLoaded = true;
   updateFilterChangesStatus();
+}
+
+function normalizedFilterSettings(settings = {}) {
+  return {daily_volume_max: 4, minute_volume_min: 4, first_candle_turnover_min: 30000000,
+    today_open_cross: false, monthly_filter: false, last_two_days_filter: false,
+    redwala_open_previous_close: false, redwala_open_gap_max: 1, pdhl_filter: false, pdhl_max: 4,
+    ...settings};
 }
 
 let savedFilterSettings = null;
@@ -482,6 +554,15 @@ function readFilterSettings() {
   settings.today_open_cross = Boolean(els.todayOpenCross.checked);
   settings.monthly_filter = Boolean(els.monthlyFilter.checked);
   settings.last_two_days_filter = Boolean(els.lastTwoDaysFilter.checked);
+  settings.redwala_open_previous_close = Boolean(els.redwalaOpenPreviousClose.checked);
+  settings.pdhl_filter = Boolean(els.pdhlFilter.checked);
+  for (const [key, control] of [["redwala_open_gap_max", els.redwalaOpenGapMax], ["pdhl_max", els.pdhlMax]]) {
+    const value = Number(control.value);
+    if (String(control.value).trim() === "" || !Number.isFinite(value) || value < 0) {
+      throw new Error("Opening-gap and PDHL percentages must be finite numbers greater than or equal to zero.");
+    }
+    settings[key] = value;
+  }
   return settings;
 }
 
@@ -496,8 +577,12 @@ function updateFilterChangesStatus() {
     : "Selected filters are saved. Run Backtest to generate results with these settings.";
 }
 
-els.volumeFiltersForm.addEventListener("input", updateFilterChangesStatus);
-els.volumeFiltersForm.addEventListener("change", updateFilterChangesStatus);
+function filterFormChanged(event) {
+  editedFilterFields.add(event?.target?.id || '*');
+  updateFilterChangesStatus();
+}
+els.volumeFiltersForm.addEventListener("input", filterFormChanged);
+els.volumeFiltersForm.addEventListener("change", filterFormChanged);
 
 let stateRefresh = null;
 function refreshState() {
@@ -510,6 +595,7 @@ function refreshState() {
 
 async function saveFilterSettings(settings) {
   if (els.saveVolumeFilters.disabled) return false;
+  ++filterWriteRevision;
   setBusy(els.saveVolumeFilters, true);
   els.saveVolumeFilters.textContent = "Applying…";
   els.saveVolumeFilters.setAttribute("aria-busy", "true");
@@ -520,6 +606,7 @@ async function saveFilterSettings(settings) {
     }, 10000);
     els.activeVolumeFilters.textContent = `Saved: ${filterDescription(settings)}`;
     savedFilterSettings = { ...settings };
+    ++filterWriteRevision; // Ignore reads started before this save completed.
     updateFilterChangesStatus();
     setMessage(result.message || "Filters applied");
     // Refresh results separately. A delayed poll cannot keep the Save button busy,
@@ -540,13 +627,19 @@ async function saveFilterSettings(settings) {
 
 els.credentialsForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  runAction(els.credentialsForm.querySelector("button"), () => api("/api/credentials", {
-    method: "POST",
-    body: JSON.stringify({
-      client_id: els.clientId.value,
-      access_token: els.accessToken.value,
-    }),
-  }));
+  const clientId = els.clientId.value.trim();
+  const token = els.accessToken.value;
+  ++credentialsRevision;
+  runAction(els.credentialsForm.querySelector("button"), async () => {
+    const result = await api("/api/credentials", {
+      method: "POST", body: JSON.stringify({client_id: clientId, access_token: token}),
+    });
+    ++credentialsRevision;
+    loadedCredentials = {client_id: clientId, has_credentials: true};
+    if (els.accessToken.value === token) els.accessToken.value = "";
+    renderCredentialsStatus();
+    return result;
+  });
 });
 
 els.volumeFiltersForm.addEventListener("submit", (event) => {
@@ -613,5 +706,178 @@ window.addEventListener("load", async () => {
   } catch (error) {
     setMessage(error.message, true);
   }
-  setInterval(() => refreshState().catch(() => {}), 2000);
+  let configRetryPending = false;
+  setInterval(() => {
+    if (!configLoaded && !configRetryPending) {
+      configRetryPending = true;
+      refreshConfig().catch(() => {}).finally(() => { configRetryPending = false; });
+    }
+    refreshState().catch(() => {});
+  }, 2000);
+});
+
+
+const algoFields = {
+  capital: 'algoCapital', target_pct: 'algoTarget', stop_pct: 'algoStop',
+  trailing_pct: 'algoTrailPct', max_adds: 'algoMaxAdds', max_reversals: 'algoMaxReversals',
+  max_loss: 'algoMaxLoss', slippage_bps: 'algoSlippage', fee_per_order: 'algoFee',
+};
+let algoLoaded = false;
+let algoFormEdited = false;
+let algoActionBusy = false;
+let algoBacktestBusy = false;
+let lastAlgoBacktestInputs = null;
+let lastAlgoBacktestFilters = null;
+function algoBacktestPayload() {
+  return {symbol: qs('#algoBacktestSymbol').value.trim().toUpperCase(),
+    setup: qs('#algoBacktestSetup').value, target_date: qs('#algoBacktestDate').value,
+    start_time: qs('#algoBacktestTime').value, settings: {...readAlgoSettings(), mode: 'paper'}};
+}
+function updateAlgoBacktestStale() {
+  if (!lastAlgoBacktestInputs) return;
+  let changed = true;
+  try {
+    changed = JSON.stringify(algoBacktestPayload()) !== lastAlgoBacktestInputs
+      || (lastLiveState?.volume_filters && filterDescription(lastLiveState.volume_filters) !== lastAlgoBacktestFilters);
+  } catch (_) { /* Invalid edited inputs also require a new run. */ }
+  qs('#algoBacktestStale').hidden = !changed;
+  qs('#algoBacktestStale').textContent = changed
+    ? 'Settings changed. This result uses the earlier settings; rerun the algo backtest to update P&L.' : '';
+}
+for (const form of ['#algoSettingsForm', '#algoBacktestForm']) {
+  const onEdit = () => {
+    if (form === '#algoSettingsForm') algoFormEdited = true;
+    updateAlgoBacktestStale();
+  };
+  qs(form).addEventListener('input', onEdit);
+  qs(form).addEventListener('change', onEdit);
+}
+function readAlgoSettings() {
+  const settings = {mode: qs('#algoMode').value, sizing: 'capital', reference: 'original',
+    first_direction: qs('#algoFirstDirection').value || 'setup',
+    reversal_size: 'initial', square_off: qs('#algoSquareOff').value,
+    trailing: Boolean(qs('#algoTrailing').checked), ladder: Boolean(qs('#algoLadder').checked),
+    pyramiding: Boolean(qs('#algoPyramid').checked)};
+  for (const [key, id] of Object.entries(algoFields)) {
+    const raw = qs('#' + id).value;
+    settings[key] = Number(raw);
+    if (raw === '' || !Number.isFinite(settings[key])) throw new Error('Enter valid algo settings before starting.');
+  }
+  if (settings.capital <= 0 || settings.target_pct <= 0 || settings.stop_pct <= 0 || settings.max_loss <= 0)
+    throw new Error('Capital, target, stop and maximum loss must be greater than zero.');
+  return settings;
+}
+function algoRowButton(row, backtest) {
+  const setup = row.possible_candidate ? 'possible' : row.redwala_gira ? 'redwala' : null;
+  if (!setup || row.awaiting_confirmation || (!backtest && row.confirmation_status !== 'confirmed')) return '';
+  return `<button type="button" class="algo-row-button" data-algo-symbol="${escapeHtml(row.symbol)}" data-algo-setup="${setup}" data-algo-action="${backtest ? 'backtest' : 'start'}">${backtest ? 'Algo Backtest' : 'Start Algo'}</button>`;
+}
+
+function algoFirstSide(settings, setup) {
+  return settings.first_direction === 'long' ? 'BUY' : settings.first_direction === 'short' ? 'SELL'
+    : setup === 'possible' ? 'BUY' : 'SELL';
+}
+function algoFills(fills) {
+  return `<div class="algo-fills"><table><thead><tr><th>Time (IST)</th><th>Buy / Sell</th><th>Shares</th><th>Fill price</th><th>Net shares</th><th>Cumulative gross P&amp;L</th></tr></thead><tbody>${fills.map(f => `<tr><td>${escapeHtml(f.time)}${f.execution === 'candle_close' ? `<br><small>${fmtTime(f.candle_start)} candle close</small>` : ''}</td><td>${f.qty > 0 ? 'BUY' : 'SELL'}</td><td>${Math.abs(f.qty)}</td><td>${fmtNumber(f.price)}</td><td>${f.net_qty}</td><td>${fmtNumber(f.realized)}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderAlgo(data) {
+  if (!data) return;
+  qs('#algoFeedStatus').textContent = `Market websocket: ${data.market_socket_connected ? 'connected' : 'idle / reconnecting'} · Order updates: ${data.order_socket_connected ? 'connected' : 'idle / reconnecting'}. Session messages show REST fallback or missing data.`;
+  const openDetails = new Set(Array.from(qs('#algoSessions').querySelectorAll('details[open]')).map(el => el.dataset.session));
+  if (!algoLoaded && !algoFormEdited) {
+    const s = data.settings || {};
+    for (const [key, id] of Object.entries(algoFields)) if (s[key] != null) qs('#' + id).value = s[key];
+    // Every new browser session defaults to paper; switching to live is explicit.
+    qs('#algoMode').value = 'paper';
+    qs('#algoFirstDirection').value = s.first_direction || 'setup';
+    qs('#algoSquareOff').value = s.square_off || '15:15';
+    qs('#algoTrailing').checked = Boolean(s.trailing);
+    qs('#algoLadder').checked = Boolean(s.ladder);
+    qs('#algoPyramid').checked = Boolean(s.pyramiding);
+    qs('#algoBacktestDate').value = els.backtestDate.value;
+    algoLoaded = true;
+  }
+  qs('#algoSessions').innerHTML = (data.sessions || []).map(row => {
+    const s = row.strategy, c = s.settings, pending = row.pending;
+    const side = Math.sign(s.net_qty), reference = c.reference === 'average' ? s.average : s.original;
+    const target = side ? reference * (1 + side * c.target_pct / 100) : null;
+    return `<article class="algo-session" data-mode="${escapeHtml(row.mode)}">
+      <strong>${escapeHtml(row.symbol)} &middot; ${escapeHtml(row.mode.toUpperCase())} &middot; ${escapeHtml(row.status)} &middot; ${escapeHtml(row.session_date)}</strong>
+      <p>App quantity ${s.net_qty} &middot; Broker quantity ${row.broker_qty ?? '--'} &middot; Initial quantity ${s.base_qty} &middot; Original entry ${fmtNumber(s.original)} &middot; Average ${fmtNumber(s.average)} &middot; Target ${fmtNumber(target)} &middot; Stop ${fmtNumber(s.stop)} &middot; Adds ${s.adds}/${c.max_adds} &middot; Reversals ${s.reversals}/${c.max_reversals} &middot; P&amp;L &#8377;${fmtNumber(row.pnl ?? s.realized - s.fees)}</p>
+      <p>${escapeHtml(row.message || '')}${pending ? ` &middot; Order ${escapeHtml(pending.order_id || pending.correlation)}: ${escapeHtml(pending.state)}, ${pending.filled_qty}/${Math.abs(pending.delta)} filled` : ''}</p>
+      ${row.status !== 'done' ? `<button type="button" data-algo-session="${row.id}" data-algo-action="exit">Exit &amp; Stop</button>${row.status === 'paused' ? `<button type="button" data-algo-session="${row.id}" data-algo-action="resume">Reconcile &amp; Resume</button>` : ''}` : ''}
+      <details data-session="${row.id}" ${openDetails.has(row.id) ? 'open' : ''}><summary>Fills &amp; session settings</summary><p>First ladder ${s.initial_side > 0 ? 'Long' : 'Short'} &middot; Capital &#8377;${fmtNumber(c.capital)} &middot; TG ${c.target_pct}% &middot; SL ${c.stop_pct}% &middot; TSL ${c.trailing ? c.trailing_pct + '%' : 'off'} &middot; Ladder ${c.ladder ? 'on' : 'off'} &middot; Pyramiding ${c.pyramiding ? 'on' : 'off'} &middot; Square-off ${escapeHtml(c.square_off)} IST</p>${algoFills(s.fills || [])}</details>
+    </article>`;
+  }).join('') || '<p>No algo sessions. Select a stock from the scanner results.</p>';
+}
+async function handleAlgoClick(event) {
+  const button = event.target.closest('[data-algo-action]');
+  if (!button || algoActionBusy) return;
+  const action = button.dataset.algoAction;
+  try {
+    if (action === 'backtest') {
+      qs('#algoBacktestSymbol').value = button.dataset.algoSymbol;
+      qs('#algoBacktestSetup').value = button.dataset.algoSetup;
+      qs('#algoBacktestDate').value = lastBacktestResult?.target_date || els.backtestDate.value;
+      qs('#algoPanel').scrollIntoView({behavior: 'smooth'});
+      qs('#algoMessage').textContent = 'Stock selected. Review entry time and settings, then Run Stock Algo Backtest.';
+      return;
+    }
+    const settings = action === 'start' ? readAlgoSettings() : null;
+    if (settings?.mode === 'live' && !window.confirm(`Place REAL intraday orders for ${button.dataset.algoSymbol}? Initial direction: ${algoFirstSide(settings, button.dataset.algoSetup)}. Capital per entry/add INR ${settings.capital}. Target ${settings.target_pct}%, SL ${settings.stop_pct}%, ladder ${settings.ladder ? 'ON' : 'OFF'}, pyramiding ${settings.pyramiding ? 'ON' : 'OFF'}. Exits require this server and fresh data.`)) return;
+    algoActionBusy = true;
+    button.disabled = true;
+    const url = action === 'start' ? '/api/algo/start' : `/api/algo/${encodeURIComponent(button.dataset.algoSession)}/${action}`;
+    const body = action === 'start' ? {symbol: button.dataset.algoSymbol, setup: button.dataset.algoSetup, settings} : {};
+    const result = await api(url, {method: 'POST', body: JSON.stringify(body)}, 15000);
+    qs('#algoMessage').textContent = result.message;
+    await refreshState();
+  } catch (error) {
+    qs('#algoMessage').textContent = error.name === 'AbortError' ? 'Response timed out. Check algo sessions before retrying; the request may have succeeded.' : error.message;
+  } finally {
+    algoActionBusy = false;
+    button.disabled = false;
+  }
+}
+qs('#stockRows').addEventListener('click', handleAlgoClick);
+qs('#backtestRows').addEventListener('click', handleAlgoClick);
+qs('#algoSessions').addEventListener('click', handleAlgoClick);
+qs('#algoSettingsForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = qs('#algoSave');
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    const result = await api('/api/algo/settings', {method: 'POST', body: JSON.stringify(readAlgoSettings())}, 10000);
+    qs('#algoMessage').textContent = result.message;
+  } catch (error) { qs('#algoMessage').textContent = error.message; }
+  finally { button.disabled = false; }
+});
+qs('#algoMode').addEventListener('change', () => {
+  qs('#algoMessage').textContent = qs('#algoMode').value === 'live'
+    ? 'LIVE selected. Start Algo will request real Dhan orders for the selected stock.'
+    : 'Paper selected. New sessions simulate fills; existing live sessions remain active.';
+});
+qs('#algoBacktestForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (algoBacktestBusy) return;
+  algoBacktestBusy = true;
+  qs('#algoBacktestRun').disabled = true;
+  lastAlgoBacktestInputs = null;
+  qs('#algoBacktestStale').hidden = true;
+  qs('#algoBacktestResult').textContent = 'Fetching history and replaying the selected stock...';
+  try {
+    const inputs = JSON.stringify(algoBacktestPayload());
+    const result = await api('/api/algo/backtest', {method: 'POST', body: inputs});
+    qs('#algoBacktestResult').innerHTML = `<h3>${escapeHtml(result.symbol)} &middot; ${escapeHtml(result.target_date)} &middot; P&amp;L &#8377;${fmtNumber(result.pnl)}</h3>
+      <p>Gross P&amp;L &#8377;${fmtNumber(result.strategy.realized)} &minus; costs &#8377;${fmtNumber(result.strategy.fees)} = net P&amp;L &#8377;${fmtNumber(result.pnl)}. Slippage is included in fill prices.</p>
+      <p>First ladder: ${result.strategy.initial_side > 0 ? 'Long' : 'Short'} &middot; Entry time: ${escapeHtml(result.start_time)}</p>
+      <p>${escapeHtml(result.model)}${result.truncated ? ' INCOMPLETE SESSION: closed at the last available candle; not a full-day result.' : ''}</p>
+      <p>Filters used: ${escapeHtml(filterDescription(result.volume_filters))}</p>
+      ${algoFills(result.strategy.fills)}<details><summary>Strategy actions</summary>${result.actions.map(a => `<p>${escapeHtml(a.time)} &middot; ${escapeHtml(a.reason)} &middot; intended net ${a.desired}</p>`).join('')}</details>`;
+    lastAlgoBacktestInputs = inputs;
+    lastAlgoBacktestFilters = filterDescription(result.volume_filters);
+    updateAlgoBacktestStale();
+  } catch (error) { qs('#algoBacktestResult').textContent = error.message; }
+  finally { algoBacktestBusy = false; qs('#algoBacktestRun').disabled = false; }
 });

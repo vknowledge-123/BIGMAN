@@ -1,0 +1,318 @@
+{
+  "strategy": {
+    "settings": {
+      "mode": "paper",
+      "first_direction": "short",
+      "sizing": "capital",
+      "quantity": 1,
+      "capital": 3000.0,
+      "target_pct": 4.0,
+      "stop_pct": 1.0,
+      "trailing": false,
+      "trailing_pct": 1,
+      "ladder": true,
+      "pyramiding": true,
+      "max_adds": 2,
+      "reference": "original",
+      "reversal_size": "initial",
+      "max_reversals": 20,
+      "max_loss": 200.0,
+      "square_off": "15:15",
+      "slippage_bps": 5.0,
+      "fee_per_order": 7.0,
+      "order_timeout_seconds": 15,
+      "max_quote_age_seconds": 5
+    },
+    "initial_side": -1,
+    "base_qty": 20,
+    "net_qty": 0,
+    "average": 0,
+    "original": 151.03548,
+    "best": 157.0768992,
+    "stop": 149.52512520000002,
+    "next_add": 155.767656988561,
+    "adds": 2,
+    "reversals": 1,
+    "realized": 221.28882067214755,
+    "fees": 35.0,
+    "started": true,
+    "done": true,
+    "day_locked": true,
+    "last_reason": "target",
+    "fills": [
+      {
+        "id": "paper-1",
+        "qty": -20,
+        "price": 149.34529,
+        "time": "2026-10-07T09:17:00+05:30",
+        "net_qty": -20,
+        "realized": 0
+      },
+      {
+        "id": "paper-2",
+        "qty": 40,
+        "price": 151.03548,
+        "time": "2026-10-07T09:18:00+05:30",
+        "net_qty": 20,
+        "realized": -33.803800000000024,
+        "execution": "candle_close",
+        "candle_start": "2026-10-07T09:17:00+05:30"
+      },
+      {
+        "id": "paper-3",
+        "qty": 19,
+        "price": 152.62210771739998,
+        "time": "2026-10-07T09:23:00+05:30",
+        "net_qty": 39,
+        "realized": -33.803800000000024
+      },
+      {
+        "id": "paper-4",
+        "qty": 19,
+        "price": 154.22540295897127,
+        "time": "2026-10-07T09:24:00+05:30",
+        "net_qty": 58,
+        "realized": -33.803800000000024
+      },
+      {
+        "id": "paper-5",
+        "qty": -58,
+        "price": 156.99836075040002,
+        "time": "2026-10-07T09:30:00+05:30",
+        "net_qty": 0,
+        "realized": 221.28882067214755
+      }
+    ]
+  },
+  "actions": [
+    {
+      "time": "2026-10-07T09:17:00+05:30",
+      "desired": -20,
+      "reason": "entry"
+    },
+    {
+      "time": "2026-10-07T09:18:00+05:30",
+      "desired": 20,
+      "reason": "reverse",
+      "execution": "candle_close",
+      "candle_start": "2026-10-07T09:17:00+05:30"
+    },
+    {
+      "time": "2026-10-07T09:23:00+05:30",
+      "desired": 39,
+      "reason": "add"
+    },
+    {
+      "time": "2026-10-07T09:24:00+05:30",
+      "desired": 58,
+      "reason": "add"
+    },
+    {
+      "time": "2026-10-07T09:30:00+05:30",
+      "desired": 0,
+      "reason": "target"
+    }
+  ],
+  "pnl": 186.28882067214755,
+  "reversal_timing": "candle_close",
+  "model": "Backtest-only candle-close reversals: the close must reach or pass SL/TSL; opposite entry fills at that close plus slippage, timestamped at candle end. New-position checks begin next candle. Live/paper reversals remain immediate. Other fills use one-minute OHLC: opening extreme first, otherwise adverse extreme first; intraminute times identify candles, not exact seconds. Not tick-accurate.",
+  "symbol": "ARCIL",
+  "target_date": "2026-10-07",
+  "setup": "possible",
+  "start_time": "09:17",
+  "complete_through": "2026-10-07T15:16:00+05:30",
+  "truncated": false,
+  "qualification": {
+    "retest_break": false,
+    "retest_break_at": null,
+    "retest_status": "filtered",
+    "retest_reason": "Requires a red first candle and the configured daily-volume, opening-volume and turnover filters",
+    "first_candle_low_break": false,
+    "previous_day_low_break": false,
+    "previous_day_low_cross_second_candle": false,
+    "first_candle_high_break": false,
+    "symbol": "ARCIL",
+    "name": "ASSET RECONSTRUC CO (I) L",
+    "security_id": "766072",
+    "target_date": "2026-10-07",
+    "first_candle_start": "2026-10-07T09:15:00+05:30",
+    "first_candle_color": "green",
+    "second_candle_start": "2026-10-07T09:16:00+05:30",
+    "second_candle_color": "red",
+    "first_candle_volume": 509757,
+    "first_candle_turnover": 76519623.27000001,
+    "opening_volume_average": 12778.0,
+    "opening_volume_samples": [
+      {
+        "date": "2026-10-06",
+        "candle_start": "09:15",
+        "volume": 3559
+      },
+      {
+        "date": "2026-10-05",
+        "candle_start": "09:15",
+        "volume": 5908
+      },
+      {
+        "date": "2026-10-01",
+        "candle_start": "09:15",
+        "volume": 28867
+      }
+    ],
+    "volume_multiplier": 39.89333228987322,
+    "opening_colors_match": true,
+    "possible_candidate": true,
+    "redwala_gira": false,
+    "retest_base_eligible": false,
+    "retest_eligible": false,
+    "qualifies_scan": true,
+    "first_open_equals_high": false,
+    "first_open_equals_low": false,
+    "previous_day_high_cross": false,
+    "previous_day_low_cross": false,
+    "candidate_reason": "First candle 09:15 green; second candle not required; opening volume 509,757 / average 12,778 = 39.89x (minimum 4x); first candle turnover 76,519,623.27 INR > 10,000,000.00 INR (pass); Last 2 Days Filter: both candles green; no additional opening condition; 2026-10-06 daily volume 0.78x (limit <= 4x or price change <= +1%), close change 2.46% (pass)",
+    "daily_filter": {
+      "twenty_day_closes": [
+        {
+          "date": "2026-09-17",
+          "close": 137.02
+        },
+        {
+          "date": "2026-09-18",
+          "close": 136.37
+        },
+        {
+          "date": "2026-09-21",
+          "close": 135.18
+        },
+        {
+          "date": "2026-09-22",
+          "close": 138.91
+        },
+        {
+          "date": "2026-09-23",
+          "close": 149.76
+        },
+        {
+          "date": "2026-09-24",
+          "close": 148.62
+        },
+        {
+          "date": "2026-09-25",
+          "close": 144.49
+        },
+        {
+          "date": "2026-09-28",
+          "close": 142.71
+        },
+        {
+          "date": "2026-09-29",
+          "close": 142.51
+        },
+        {
+          "date": "2026-09-30",
+          "close": 144.59
+        },
+        {
+          "date": "2026-10-01",
+          "close": 139.92
+        },
+        {
+          "date": "2026-10-05",
+          "close": 142.24
+        },
+        {
+          "date": "2026-10-06",
+          "close": 145.74
+        }
+      ],
+      "last_two_day_candles": [
+        {
+          "date": "2026-10-05",
+          "open": 141.09,
+          "close": 142.24
+        },
+        {
+          "date": "2026-10-06",
+          "open": 143.0,
+          "close": 145.74
+        }
+      ],
+      "five_day_closes": [
+        {
+          "date": "2026-09-29",
+          "close": 142.51
+        },
+        {
+          "date": "2026-09-30",
+          "close": 144.59
+        },
+        {
+          "date": "2026-10-01",
+          "close": 139.92
+        },
+        {
+          "date": "2026-10-05",
+          "close": 142.24
+        },
+        {
+          "date": "2026-10-06",
+          "close": 145.74
+        }
+      ],
+      "five_day_highest_close": 145.74,
+      "volume_limit": 4.0,
+      "session_date": "2026-10-07",
+      "previous_date": "2026-10-06",
+      "previous_volume": 1271807,
+      "previous_close": 145.74,
+      "previous_high": 147.8,
+      "previous_low": 143.0,
+      "prior_close": 142.24,
+      "average": 1640154.0,
+      "multiplier": 0.7754192594110065,
+      "percent_change": 2.4606299212598426,
+      "samples": [
+        {
+          "date": "2026-09-30",
+          "close": 144.59,
+          "volume": 1943689,
+          "high": 149.27,
+          "low": 143.32,
+          "open": 143.51
+        },
+        {
+          "date": "2026-10-01",
+          "close": 139.92,
+          "volume": 1662073,
+          "high": 147.35,
+          "low": 137.5,
+          "open": 145.4
+        },
+        {
+          "date": "2026-10-05",
+          "close": 142.24,
+          "volume": 1314700,
+          "high": 145.24,
+          "low": 140.56,
+          "open": 141.09
+        }
+      ],
+      "passes": true,
+      "price_exception": false
+    },
+    "first_candle_open": 149.0,
+    "first_candle_high": 152.99,
+    "is_fno": false,
+    "status": "candidate",
+    "error": null
+  },
+  "volume_filters": {
+    "daily_volume_max": 4.0,
+    "minute_volume_min": 4.0,
+    "first_candle_turnover_min": 10000000.0,
+    "today_open_cross": false,
+    "monthly_filter": false,
+    "last_two_days_filter": true
+  }
+}

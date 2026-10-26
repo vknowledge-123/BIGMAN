@@ -856,3 +856,19 @@ th.symbol-cell {
   .live-table .symbol-cell .symbol span { max-width: 170px; }
   .live-table .first-turnover-cell { left: 200px; min-width: 110px; padding: 10px 8px; }
 }
+/* Selected-stock execution stays visible independently of scanner tabs. */
+.algo-panel { margin: 24px 0; padding: 24px; background: #fff; border: 1px solid #cbd5e1; border-radius: 12px; }
+.algo-panel p { line-height: 1.5; color: #475569; margin: 12px 0; }
+.algo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; align-items: end; margin: 16px 0; }
+.algo-grid label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.algo-grid input, .algo-grid select { width: 100%; padding: 9px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; color: #0f172a; }
+.algo-grid .algo-check { flex-direction: row; align-items: center; align-self: center; }
+.algo-check input { width: auto; }
+.algo-warning { padding: 12px; background: #fff7ed; border-left: 4px solid #ea580c; }
+.algo-session { border: 1px solid #cbd5e1; padding: 14px; border-radius: 8px; margin: 12px 0; overflow-wrap: anywhere; }
+.algo-session[data-mode="live"] { border-left: 4px solid #dc2626; }
+.algo-session button, .algo-row-button { margin: 5px 5px 0 0; }
+.algo-panel button, .algo-row-button { background: var(--blue); }
+.algo-panel button[data-algo-action="exit"] { background: var(--red); }
+.algo-fills { max-height: 260px; overflow: auto; }
+.algo-fills table { min-width: 580px; width: 100%; }

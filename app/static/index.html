@@ -33,12 +33,13 @@
           </label>
           <label>
             Access Token
-            <input id="accessToken" type="password" autocomplete="current-password" placeholder="Access token" required />
+            <input id="accessToken" type="password" autocomplete="new-password" placeholder="Access token" required />
           </label>
           <button class="primary" type="submit">
             <i data-lucide="save"></i>
             Save
           </button>
+          <p id="credentialsStatus" class="muted-small" role="status">Loading saved credentials…</p>
         </form>
 
         <form id="symbolsForm" class="panel symbols-panel">
@@ -131,7 +132,7 @@ OIL</textarea>
             First-candle turnover — greater than (₹ crore)
             <input id="firstCandleTurnoverMin" type="number" min="0" step="any" value="3" required />
           </label>
-          <button id="saveVolumeFilters" class="primary" type="submit">Save &amp; Apply</button>
+          <button id="saveVolumeFilters" class="primary" type="submit" disabled>Loading settings…</button>
         </div>
         <label class="open-cross-toggle">
           <input id="todayOpenCross" type="checkbox" role="switch" aria-describedby="openCrossHelp" />
@@ -149,6 +150,26 @@ OIL</textarea>
           Last 2 Days Filter
         </label>
         <p id="lastTwoDaysFilterHelp" class="muted-small">When ON, two green daily candles (close &gt; open) in the previous two trading sessions add no opening condition. If either candle is red or doji, today's open must be strictly above both closes. Both new filters apply to Possible Candidates and Retest Break in Live and Backtest, alongside existing rules. Redwala is unaffected by either filter. Missing history stays unresolved only for the setups that require it. Click Save &amp; Apply; rerun backtests after changes.</p>
+        <label class="open-cross-toggle">
+          <input id="redwalaOpenPreviousClose" type="checkbox" role="switch" aria-describedby="redwalaGapHelp" />
+          Redwala Open / Previous Close
+        </label>
+        <div class="filter-fields">
+          <label>Maximum opening gap (%)
+            <input id="redwalaOpenGapMax" type="number" min="0" step="any" value="1" required />
+          </label>
+        </div>
+        <p id="redwalaGapHelp" class="muted-small">Redwala only. When ON, (first open − previous close) / previous close × 100 must not exceed your limit, and the first candle must open strictly above and close strictly below the previous trading day's close. Existing turnover, red candle and open = high rules still apply. OFF skips this additional condition.</p>
+        <label class="open-cross-toggle">
+          <input id="pdhlFilter" type="checkbox" role="switch" aria-describedby="pdhlHelp" />
+          PDHL · Possible Candidates only
+        </label>
+        <div class="filter-fields">
+          <label>Maximum previous-day high–low range (%)
+            <input id="pdhlMax" type="number" min="0" step="any" value="4" required />
+          </label>
+        </div>
+        <p id="pdhlHelp" class="muted-small">When ON, (previous high − previous low) / previous low × 100 must not exceed your limit. Equality passes. Applies only to Possible Candidates; Redwala and Retest Break are unaffected. Both new toggles use cached day levels in Live, scanner backtests and setup qualification for algo backtests. Missing required levels remain unresolved. Save &amp; Apply, then rerun backtests.</p>
         <div id="activeVolumeFilters" class="muted-small" role="status">Loading saved filters…</div>
         <p id="filterChangesStatus" class="muted-small" role="status" aria-live="polite">Run Backtest saves your selected filters before starting. Save &amp; Apply updates Live too.</p>
       </form>
@@ -169,6 +190,7 @@ OIL</textarea>
         </button>
       </nav>
 
+      <div id="morningSetupHelp">
       <label class="setup-filter">
         Show scan
         <select id="setupFilter">
@@ -181,10 +203,11 @@ OIL</textarea>
       <p class="muted-small">Redwala: first candle red with open = high, and first-candle turnover strictly above your saved threshold. Daily and first-minute volume filters do not apply. First Candle PDL Cross requires the first candle to open strictly above and close strictly below the previous day's low. PDL Cross on 2nd Candle applies the same strict open/close rule to the completed second candle (9:16 to 9:17). First Candle Low Break appears when a later price trades strictly below the first candle low and remains after a rebound.</p>
       <p class="muted-small">Retest Break: first candle red, followed only by green candles through the first high break. Confirmed after the breaking candle closes green. Requires the saved volume, turnover and enabled Today Open Cross, Monthly and Last 2 Days conditions. A red/doji before the break invalidates the sequence; no open = high requirement.</p>
 
+      </div>
       <section id="liveView" class="view-pane">
         <div id="scanSummary" class="message">Prepare stocks before market open, then start Live before 9:15.</div>
         <p id="liveTurnoverSummary" class="muted-small">First-candle turnover = volume × close. Loading saved threshold…</p>
-        <p class="muted-small">Live results show Possible Candidates and Redwala with high/low breakout badges first, followed by other matches.</p>
+        <p id="morningSortHelp" class="muted-small">Live results show Possible Candidates and Redwala with high/low breakout badges first, sorted by first-candle turnover from highest to lowest. Other matches follow.</p>
         <div id="scanIssues" class="scan-issues" role="status" hidden></div>
         <div id="openingLiveResults" class="table-wrap">
           <table class="live-table">
@@ -265,6 +288,45 @@ OIL</textarea>
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section id="algoPanel" class="algo-panel" aria-labelledby="algoTitle">
+        <h2 id="algoTitle">Selected-stock Algo &middot; Paper / Live / Backtest</h2>
+        <p>Choose a confirmed Possible Candidate or Redwala using its Start Algo button. Select which ladder starts first below. Each session keeps the settings selected at start.</p>
+        <form id="algoSettingsForm" class="algo-grid">
+          <label>Execution mode<select id="algoMode"><option value="paper">Paper trading</option><option value="live">LIVE &middot; real Dhan orders</option></select></label>
+          <label>First ladder direction<select id="algoFirstDirection"><option value="setup">Setup default (Candidate long / Redwala short)</option><option value="long">Long first (BUY)</option><option value="short">Short first (SELL)</option></select></label>
+          <label>Capital per entry / add (&#8377;)<input id="algoCapital" type="number" value="10000" min="1" step="any" required></label>
+          <label>Target (%)<input id="algoTarget" type="number" value="4" min="0.01" max="100" step="any" required></label>
+          <label>Stop loss / add interval (%)<input id="algoStop" type="number" value="1" min="0.01" max="99" step="any" required></label>
+          <label class="algo-check"><input id="algoTrailing" type="checkbox"> Enable trailing stop</label>
+          <label>Trailing distance (%)<input id="algoTrailPct" type="number" value="1" min="0.01" max="99" step="any" required></label>
+          <label class="algo-check"><input id="algoLadder" type="checkbox"> Reverse on SL / TSL</label>
+          <label class="algo-check"><input id="algoPyramid" type="checkbox"> Enable pyramiding</label>
+          <label>Maximum adds per ladder<input id="algoMaxAdds" type="number" value="2" min="0" max="20" required></label>
+          <label>Maximum reversals<input id="algoMaxReversals" type="number" value="20" min="0" max="100" required></label>
+          <label>Maximum loss per session (&#8377;)<input id="algoMaxLoss" type="number" value="10000" min="1" step="any" required></label>
+          <label>Square-off (IST)<input id="algoSquareOff" type="time" value="15:15" min="09:17" max="15:20" required></label>
+          <label>Paper / replay slippage (bps)<input id="algoSlippage" type="number" value="5" min="0" max="100" step="any" required></label>
+          <label>Cost per filled order (&#8377;)<input id="algoFee" type="number" value="0" min="0" step="any" required></label>
+          <button id="algoSave" type="submit">Save Algo Defaults</button>
+        </form>
+        <p>Quantity = floor(capital / entry price), without leverage. Adds use the same capital at their new price. Targets and fixed stops use each ladder's original entry price. First ladder direction applies to trading and backtests. Opposite ladders start after SL/TSL only when Reverse on SL / TSL is enabled. Reversals close all shares and open the original initial quantity on the opposite side. A target ends trading in that stock for the day.</p>
+        <p class="algo-warning"><strong>Exits run in this application.</strong> SL, TSL and target use received websocket LTP updates. Orders use cached bid/ask; REST quotes are a fallback with the shared 1.05-second throttle. Fills require broker reconciliation; execution is not instantaneous or price-guaranteed. Keep the server, feed and internet running. Use Exit &amp; Stop and verify zero broker quantity before closing. Scanner Stop does not stop algos. Live orders require valid Dhan credentials and a whitelisted static IP.</p>
+        <div id="algoMessage" role="status" aria-live="polite">Paper mode selected. No stock starts automatically.</div>
+        <p id="algoFeedStatus" role="status">Algo feeds idle</p>
+        <div id="algoSessions" class="algo-sessions"></div>
+        <h3>Algo Backtest</h3>
+        <form id="algoBacktestForm" class="algo-grid">
+          <label>Stock<input id="algoBacktestSymbol" placeholder="Select from results or type symbol" required></label>
+          <label>Setup<select id="algoBacktestSetup"><option value="possible">Possible Candidate</option><option value="redwala">Redwala</option></select></label>
+          <label>Trading date<input id="algoBacktestDate" type="date" required></label>
+          <label>Entry time (IST)<input id="algoBacktestTime" type="time" value="09:16" min="09:16" max="15:19" required></label>
+          <button id="algoBacktestRun" type="submit">Run Stock Algo Backtest</button>
+        </form>
+        <p>Uses the algo controls above and saved scanner filters. Checks setup qualification before entry. The entry candle uses only its close for exit checks, trailing updates and adds; its high/low are ignored. From the next candle, OHLC checks apply. Backtests reverse ladders only when the candle closes at or beyond SL/TSL, using that close plus slippage. New-position stop checks begin next candle. Live/paper trading still reverses immediately. Historical replay never places real orders, including when LIVE mode is selected. One-minute OHLC replay cannot reproduce tick order or actual bid/ask fills.</p>
+        <p id="algoBacktestStale" role="status" hidden></p>
+        <div id="algoBacktestResult" aria-live="polite"></div>
       </section>
     </main>
   </body>
