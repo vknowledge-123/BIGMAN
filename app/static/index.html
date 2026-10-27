@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
     <script src="/static/app.js" defer></script>
+    <script src="/static/preopen.js" defer></script>
   </head>
   <body>
     <main class="shell">
@@ -112,6 +113,34 @@ OIL</textarea>
             </button>
           </div>
         </section>
+      </section>
+
+      <section id="preopenPanel" class="panel preopen-panel">
+        <div class="panel-head"><h2>NSE Pre-open CSV · Stock selection</h2></div>
+        <p class="muted-small">Upload the NSE pre-open CSV, filter the stocks, then replace the scanner list with the matches. These are pre-open turnover values, separate from the first-candle turnover setting below.</p>
+        <p id="preopenSource" class="muted-small">No CSV loaded.</p>
+        <form id="preopenForm">
+          <div class="filter-fields">
+            <label>NSE CSV file<input id="preopenFile" type="file" accept=".csv,text/csv" /></label>
+            <fieldset class="preopen-universe"><legend>Stocks to include</legend>
+              <label><input id="preopenCash" type="radio" name="preopenUniverse" value="cash" checked /> Cash · non-F&O</label>
+              <label><input id="preopenFno" type="radio" name="preopenUniverse" value="fno" /> F&O stocks</label>
+            </fieldset>
+            <label>Direction<select id="preopenDirection"><option value="gainers">Gainers</option><option value="losers">Losers</option><option value="both">Both</option></select></label>
+          </div>
+          <div class="filter-fields preopen-fields">
+            <label>Minimum pre-open turnover (₹ crore)<input id="preopenMinTurnover" type="number" min="0" step="any" value="0" required /></label>
+            <label>Maximum pre-open turnover (₹ crore)<input id="preopenMaxTurnover" type="number" min="0" step="any" placeholder="No maximum" /></label>
+            <label>Minimum change (%)<input id="preopenMinChange" type="number" step="any" value="0" required /></label>
+            <label>Maximum change (%)<input id="preopenMaxChange" type="number" step="any" placeholder="No maximum for gainers" /></label>
+            <label>Top N stocks<input id="preopenTopN" type="number" min="1" step="1" placeholder="All matches" /></label>
+          </div>
+          <p class="muted-small">Limits are inclusive. For losers use a signed range, such as −5% to −1%. Zero change is included at a zero boundary. Results are sorted by pre-open turnover, highest first; Top N applies after the F&O / Cash filter. F&O means equity stocks in the app's classification list, not futures or options contracts.</p>
+          <div class="actions"><button id="preopenPreview" class="secondary" type="submit">Filter CSV</button><button id="preopenApply" class="primary" type="button" disabled>Use matches in scanner</button></div>
+        </form>
+        <p id="preopenStatus" class="muted-small" role="status" aria-live="polite">Choose a CSV to preview. Your current scanner stock list stays active until you use the matches.</p>
+        <p class="muted-small">Using matches replaces the Stocks list and saves this CSV and its filters for refresh. If Live is running, start it again for the new list. Active algo sessions continue separately.</p>
+        <div id="preopenTable" class="preopen-preview" hidden><table><thead><tr><th>Rank</th><th>Stock</th><th>Price</th><th>Change %</th><th>Pre-open turnover (₹ crore)</th></tr></thead><tbody id="preopenRows"></tbody></table></div>
       </section>
 
       <form id="volumeFiltersForm" class="panel volume-filters">

@@ -21,6 +21,7 @@ from .schemas import (
 )
 from .storage import ConfigStore
 from .algo_strategy import AlgoSettings, AlgoStart, AlgoBacktest
+from .preopen import PreopenRequest, PreopenSettings, filter_csv
 
 
 ROOT = Path(__file__).resolve().parent
@@ -56,7 +57,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 def dashboard() -> HTMLResponse:
     # HTML and controls must stay in sync after updates, including Drive copies.
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    for filename in ("app.js", "styles.css"):
+    for filename in ("app.js", "styles.css", "preopen.js"):
+        if f'"/static/{filename}"' not in html:
+            continue
         version = sha256((STATIC_DIR / filename).read_bytes()).hexdigest()[:16]
         html = html.replace(f'"/static/{filename}"', f'"/static/{filename}?v={version}"')
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
@@ -105,6 +108,36 @@ def save_symbols(payload: SymbolsIn) -> MessageOut:
             message=f"Saved {len(symbols)} symbol(s). Unresolved: {', '.join(unresolved)}",
         )
     return MessageOut(ok=True, message=f"Saved {len(symbols)} symbol(s)")
+
+
+@app.get("/api/preopen")
+def get_preopen_import():
+    return {"saved": store.load_preopen_import(), "defaults": PreopenSettings().model_dump()}
+
+
+@app.post("/api/preopen/preview")
+def preview_preopen(payload: PreopenRequest):
+    try:
+        return filter_csv(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/preopen/apply")
+def apply_preopen(payload: PreopenRequest):
+    result = preview_preopen(payload)
+    if not result["symbols"]:
+        raise HTTPException(status_code=400, detail="No matching stocks. The scanner list has not been changed.")
+    try:
+        unresolved = scanner.prepare_symbols(result["symbols"])
+        store.update_symbols(result["symbols"])
+        store.save_preopen_import(payload.model_dump())
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    label = "F&O" if payload.settings.universe == "fno" else "Cash (non-F&O)"
+    return {**result, "unresolved_symbols": unresolved,
+            "message": f"Loaded {len(result['symbols'])} {label} stocks into the scanner. Cache Volume + Day Levels, then Start Live."
+                       + (f" {len(unresolved)} symbol(s) could not be resolved." if unresolved else "")}
 
 
 @app.post("/api/cache", response_model=MessageOut)

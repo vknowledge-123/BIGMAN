@@ -872,3 +872,14 @@ th.symbol-cell {
 .algo-panel button[data-algo-action="exit"] { background: var(--red); }
 .algo-fills { max-height: 260px; overflow: auto; }
 .algo-fills table { min-width: 580px; width: 100%; }
+.preopen-panel { margin-bottom: 16px; min-width: 0; }
+.preopen-panel .filter-fields { display: grid; margin-bottom: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.preopen-panel input, .preopen-panel select { max-width: 100%; min-width: 0; }
+.preopen-panel input[type="file"] { width: 100%; }
+.preopen-panel select { height: 42px; width: 100%; font: inherit; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: #fbfcff; color: var(--ink); }
+.preopen-panel #preopenSource { overflow-wrap: anywhere; }
+.preopen-universe { border: 1px solid var(--border, #cbd5e1); border-radius: 8px; min-width: 0; }
+.preopen-universe label { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 6px 0; }
+.preopen-universe input { width: auto; height: auto; padding: 0; }
+.preopen-preview { overflow: auto; max-height: 300px; }
+.preopen-preview table { width: 100%; min-width: 500px; }

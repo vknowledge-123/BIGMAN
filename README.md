@@ -9,6 +9,9 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Both new filters apply to **Possible Candidates and Retest Break** in Live and Backtest. **Redwala is exempt from both filters**, including when their daily history is missing. They combine with existing rules; both must pass when enabled together. Opening setups use the first opening candle's open. Backtests use only history before the selected date. Daily-history caches retain 20 dated closes and two dated open/close candles, upgrade older caches when needed, and report incomplete history as unresolved. **Save & Apply** persists the toggles and rechecks cached results without restarting Live. Rerun backtests after saving.
 - Saves Dhan `client_id` and `access_token` locally in `data/config.json`.
 - Accepts plain NSE trading symbols pasted one per line.
+- Also accepts an **NSE Pre-open CSV** directly in the dashboard. Choose **Cash (non-F&O)** or **F&O stocks**, direction (gainers/losers/both), inclusive turnover bounds in crore, signed percentage-change bounds, and optional Top N. Classification uses the same 210-symbol list as the supplied scripts (`app/fno_symbols.py`), not an automatically refreshed exchange list. Filter first, sort by pre-open turnover descending, then apply Top N. F&O mode selects equity stocks, not derivative contracts.
+- **Filter CSV** previews without changing the scanner universe. **Use stocks in scanner** replaces the Stocks list, reuses existing scanner caches, and saves the source CSV and import filters in `data/config-preopen.json` for browser/server reloads. Then use **Cache Volume + Day Levels** and **Start Live**. Replacing the universe stops a running scanner feed; active algo sessions remain separate. Invalid uploads and empty matches cannot replace the list. Manual symbol entry is still supported. These import filters are separate from all existing Possible Candidate, Redwala and algo qualification rules.
+- CSV handling supports UTF-8/BOM, quoted numbers with Indian grouping, whitespace/newlines in headers, missing numeric values and duplicate symbols. Missing change/turnover rows are counted and skipped; duplicates keep the first valid occurrence. `CHANGE` in rupees is never substituted for `%CHANGE`. Final Price is displayed when available, otherwise IEP/price; missing display prices do not exclude rows. Uploads are limited to 2 MB. Input prices and pre-open turnover are not used to replace Dhan daily or minute candles.
 - Resolves symbols to Dhan security IDs from Dhan's scrip master.
 - Caches previous day close from Dhan historical daily candles.
 - Connects to Dhan Live Market Feed in Quote mode.
@@ -89,6 +92,12 @@ py -m pip install -r requirements.txt
 ```
 
 ## Run
+
+On Windows, double-click **Start Scanner.bat** in the project folder. It uses `.venv` or `venv` when present, otherwise the installed Python, starts one server and opens the dashboard when ready. Keep its window open while scanning or running algos. You can create a desktop shortcut to the batch file; do not move the file out of the project folder. If a healthy app is already on port 8000, the launcher opens that dashboard instead of starting a duplicate. If that port is occupied by an unresponsive server, it reports the problem and leaves the existing process alone. Missing dependencies are reported with the exact one-time installation command.
+
+The double-click launcher runs without auto-reload. Finish/exit active algos in the dashboard before pressing Ctrl+C in its window to close the app.
+
+For development with automatic reload:
 
 ```powershell
 py -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000

@@ -94,6 +94,18 @@ class ConfigStore:
             self.save(config)
             return config
 
+    def load_preopen_import(self) -> dict | None:
+        with self._lock:
+            path = self.path.with_name(self.path.stem + "-preopen.json")
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def save_preopen_import(self, payload: dict) -> None:
+        with self._lock:
+            path = self.path.with_name(self.path.stem + "-preopen.json")
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(payload), encoding="utf-8")
+            temporary.replace(path)
+
     def update_previous_closes(self, previous_closes: dict[str, float]) -> AppConfig:
         with self._lock:
             config = self.load()
