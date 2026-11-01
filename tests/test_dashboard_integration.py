@@ -89,7 +89,7 @@ def test_scanner_controls_cache_filters_and_backtest_in_browser(integration):
             page.locator('#redwalaOpenPreviousClose').check()
             page.locator('#redwalaOpenGapMax').fill('0.25')
             page.locator('#saveVolumeFilters').click()
-            pw.expect(page.locator('#activeVolumeFilters')).to_contain_text('gap \u2264 0.25%')
+            pw.expect(page.locator('#activeVolumeFilters')).to_contain_text('open or close absolute distance \u2264 0.25%')
             page.locator('#backtestButton').click()
             pw.expect(page.locator('#backtestButton')).to_be_enabled()
             pw.expect(page.locator('#backtestRows .redwala-badge')).to_have_count(0)
@@ -109,5 +109,74 @@ def test_scanner_controls_cache_filters_and_backtest_in_browser(integration):
             page.set_viewport_size({'width':390, 'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             page.screenshot(path=str(artifacts/'scanner-integration-mobile.png'), full_page=True)
+        finally:
+            browser.close()
+
+
+def test_dashboard_volume_display_filter_in_browser(integration):
+    pw = pytest.importorskip('playwright.sync_api')
+    ctx = integration
+    ctx.clock[0] = ctx.clock[0].replace(hour=10)
+    assert ctx.http.post('/api/cache-volume').status_code == 200
+    assert ctx.http.post('/api/repair').status_code == 200
+    stocks = ctx.http.get('/api/state').json()['stocks']
+    threshold = max(row['today_opening_volume'] for row in stocks)
+    qualified = sum(row['qualifies_scan'] for row in stocks)
+    assert qualified > 0
+    writes = []
+    def route(r):
+        url = urlsplit(r.request.url)
+        if url.hostname != 'scanner.test':
+            r.abort()
+            return
+        if r.request.method != 'GET':
+            writes.append(url.path)
+        result = ctx.http.request(r.request.method, url.path, content=r.request.post_data,
+                                  headers={'content-type': 'application/json'})
+        r.fulfill(status=result.status_code, body=result.content,
+                  content_type=result.headers.get('content-type', 'text/html'))
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(channel='msedge', headless=True)
+        try:
+            page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.route('**/*', route)
+            page.goto('http://scanner.test/')
+            pw.expect(page.locator('#stockRows')).to_contain_text('redwala gira')
+            pw.expect(page.locator('#dashboardVolumeMin')).to_have_value('100000')
+            page.locator('#dashboardVolumeMin').fill(str(int(threshold)))
+            page.locator('#dashboardVolumeEnabled').check()
+            pw.expect(page.locator('#stockRows')).to_contain_text('No setups have first-candle volume strictly above')
+            page.reload()
+            pw.expect(page.locator('#dashboardVolumeEnabled')).to_be_checked()
+            pw.expect(page.locator('#dashboardVolumeMin')).to_have_value(str(int(threshold)))
+            pw.expect(page.locator('#stockRows')).to_contain_text('No setups have first-candle volume strictly above')
+            page.locator('#dashboardVolumeMin').fill(str(int(threshold) - 1))
+            pw.expect(page.locator('#stockRows')).to_contain_text('redwala gira')
+            page.locator('#dashboardVolumeEnabled').uncheck()
+            pw.expect(page.locator('#dashboardVolumeSummary')).to_contain_text('filter OFF')
+            replay = ctx.http.post('/api/backtest', json={'target_date':ctx.clock[0].date().isoformat()}).json()
+            page.evaluate('(result) => renderBacktest(result)', replay)
+            page.locator('#backtestTab').click()
+            pw.expect(page.locator('#dashboardVolumeEnabled')).to_be_visible()
+            page.locator('#dashboardVolumeMin').fill(str(int(threshold)))
+            page.locator('#dashboardVolumeEnabled').check()
+            pw.expect(page.locator('#backtestRows')).to_contain_text('No setups match the display filters')
+            page.locator('#dashboardVolumeEnabled').uncheck()
+            pw.expect(page.locator('#backtestRows')).to_contain_text('redwala gira')
+            close = max(row['first_candle_close'] for row in replay['stocks'])
+            page.locator('#dashboardPriceMax').fill(str(close))
+            page.locator('#dashboardPriceEnabled').check()
+            pw.expect(page.locator('#backtestRows')).to_contain_text('redwala gira')
+            page.locator('#dashboardPriceMax').fill(str(close-0.01))
+            pw.expect(page.locator('#backtestRows')).to_contain_text('No setups match the display filters')
+            page.reload()
+            pw.expect(page.locator('#dashboardPriceEnabled')).to_be_checked()
+            pw.expect(page.locator('#dashboardPriceMax')).to_have_value(str(close-0.01))
+            page.set_viewport_size({'width': 390, 'height': 844})
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+            assert sum(row['qualifies_scan'] for row in ctx.http.get('/api/state').json()['stocks']) == qualified
+            assert not writes and not errors
         finally:
             browser.close()

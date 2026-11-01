@@ -265,3 +265,61 @@ def test_browser_real_api_settings_cache_backtest_and_badges(integration, width)
             assert not errors
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("opening,passes", [(103.5, True), (103.501, False), (96.5, True), (96.499, False)])
+def test_backtest_api_enforces_open_gap_and_returns_first_close(integration, monkeypatch, opening, passes):
+    ctx = integration
+    ctx.clock[0] = ctx.clock[0].replace(hour=10)
+    first = datetime.combine(SESSION, datetime.min.time(), tzinfo=IST).replace(hour=9, minute=15)
+    bars = [Candle(first-timedelta(days=n), 100, 102, 98, 101, 100000) for n in (1, 2, 3)]
+    bars += [Candle(first, opening, opening+1, opening, opening+1, 500000)]
+    daily = {**prepared('A').daily_filter, 'previous_close':100, 'previous_high':104, 'previous_low':100}
+    monkeypatch.setattr(ctx.engine, '_fetch_backtest_history', lambda *_: bars)
+    monkeypatch.setattr(ctx.engine, '_fetch_daily_filter', lambda *_: daily)
+    assert ctx.http.post('/api/volume-filters', json={'possible_open_pre_close':True, 'possible_open_pre_close_max':3.5}).status_code == 200
+    response=ctx.http.post('/api/backtest',json={'target_date':SESSION.isoformat()})
+    assert response.status_code == 200, response.text
+    result=response.json()
+    assert result['volume_filters']['possible_open_pre_close_max'] == 3.5
+    assert result['candidate_count'] == (2 if passes else 0)
+    for row in result['stocks']:
+        assert row['possible_candidate'] is passes
+        assert row['first_candle_open'] == opening
+        assert row['first_candle_close'] == opening+1
+        assert row['daily_filter']['previous_close'] == 100
+        assert 'absolute opening distance' in row['candidate_reason']
+
+
+def test_manual_symbol_resolution_failure_preserves_saved_and_running_list(integration, monkeypatch):
+    ctx = integration
+    old_symbols = ctx.store.load().symbols
+    old_states = dict(ctx.engine._states)
+    def fail(_):
+        raise RuntimeError('Instrument master temporarily unavailable')
+    monkeypatch.setattr(ctx.engine.resolver, 'resolve', fail)
+    response = ctx.http.post('/api/symbols', json={'symbols_text':'NEWSTOCK'})
+    assert response.status_code == 500
+    assert ctx.store.load().symbols == old_symbols
+    assert ctx.engine._states == old_states
+    assert ctx.http.get('/api/config').json()['symbols_text'] == '\n'.join(old_symbols)
+
+
+def test_backtest_request_settings_win_over_another_tabs_saved_filters(integration, monkeypatch):
+    ctx = integration
+    ctx.clock[0] = ctx.clock[0].replace(hour=10)
+    chosen = {'daily_volume_max':4, 'minute_volume_min':4, 'first_candle_turnover_min':30000000}
+    other = {**chosen, 'first_candle_turnover_min':9999999999}
+    assert ctx.http.post('/api/volume-filters',json=other).status_code == 200
+    result = ctx.http.post('/api/backtest',json={'target_date':SESSION.isoformat(),'volume_filters':chosen})
+    assert result.status_code == 200, result.text
+    assert result.json()['qualified_count'] == 2
+    assert result.json()['volume_filters']['first_candle_turnover_min'] == chosen['first_candle_turnover_min']
+    # Running the historical request must not overwrite the other tab's Live settings.
+    assert ctx.store.load().volume_filters.first_candle_turnover_min == other['first_candle_turnover_min']
+    assert ctx.engine.volume_filters.first_candle_turnover_min == other['first_candle_turnover_min']
+    legacy = ctx.http.post('/api/backtest',json={'target_date':SESSION.isoformat()})
+    assert legacy.status_code == 200
+    assert legacy.json()['qualified_count'] == 0
+    assert ctx.http.post('/api/backtest',json={'target_date':SESSION.isoformat(),
+        'volume_filters':{'minute_volume_min':-1}}).status_code == 422

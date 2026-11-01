@@ -97,9 +97,9 @@ def save_symbols(payload: SymbolsIn) -> MessageOut:
     symbols = parse_symbols(payload.symbols_text)
     if not symbols:
         raise HTTPException(status_code=400, detail="Paste at least one stock symbol")
-    store.update_symbols(symbols)
     try:
         unresolved = scanner.prepare_symbols(symbols)
+        store.update_symbols(symbols)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     if unresolved:
@@ -164,6 +164,8 @@ def cache_volume_average() -> MessageOut:
 @app.post("/api/backtest", response_model=BacktestOut)
 def run_backtest(payload: BacktestIn) -> dict:
     try:
+        if payload.volume_filters is not None:
+            return scanner.backtest_date(payload.target_date, volume_filters=payload.volume_filters)
         return scanner.backtest_date(payload.target_date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

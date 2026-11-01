@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-function dashboard() {
+function dashboard(storage) {
   const elements = new Map();
   const context = vm.createContext({
     AbortController, setTimeout, clearTimeout,
@@ -18,14 +18,16 @@ function dashboard() {
         return elements.get(selector);
       },
     },
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, localStorage: storage },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8'), context);
   elements.get('#dailyVolumeMax').value = '4';
   elements.get('#minuteVolumeMin').value = '4';
   elements.get('#firstCandleTurnoverMin').value = '3';
   elements.get('#redwalaOpenGapMax').value = '1';
+  elements.get('#redwalaOpenToleranceMax').value = '0.5';
   elements.get('#pdhlMax').value = '4';
+  elements.get('#possibleOpenPreCloseMax').value = '1';
   return { context, elements };
 }
 
@@ -161,7 +163,11 @@ test('backtest sends opening scan mode', async () => {
     if (url === '/api/state') return {ok: true, json: async () => ({stocks: [], unresolved_symbols: []})};
     assert.equal(url, '/api/backtest');
     backtests++;
-    assert.deepEqual(JSON.parse(options.body), { target_date: '2026-10-01', scan_type: 'opening' });
+    const payload = JSON.parse(options.body);
+    assert.equal(payload.target_date, '2026-10-01');
+    assert.equal(payload.scan_type, 'opening');
+    assert.equal(payload.volume_filters.minute_volume_min, 4);
+    assert.equal(payload.volume_filters.possible_open_pre_close, false);
     return { ok: true, json: async () => ({ scan_type: 'opening', stocks: [], tested_count: 0,
       qualified_count: 0, candidate_count: 0, error_count: 0 }) };
   };
@@ -301,12 +307,16 @@ test('filter form submits both toggles and restores saved selections', async () 
 test('background config refresh preserves toggle drafts and typed credentials', async () => {
   const {context, elements} = dashboard();
   context.fetch = async () => ({ok: true, json: async () => ({client_id: 'SAVED', has_credentials: true,
-    symbols_text: 'AAA', volume_filters: {monthly_filter: true}})});
+    symbols_text: 'AAA', volume_filters: {monthly_filter: true, redwala_open_tolerance: true, redwala_open_tolerance_max: .75}})});
   await vm.runInContext('refreshConfig()', context);
   assert.equal(elements.get('#clientId').value, 'SAVED');
   assert.equal(elements.get('#accessToken').value, '');
   assert.equal(elements.get('#accessToken').required, false);
   assert.match(elements.get('#credentialsStatus').textContent, /Credentials saved/);
+  assert.equal(elements.get('#redwalaOpenTolerance').checked, true);
+  assert.equal(elements.get('#redwalaOpenToleranceMax').value, .75);
+  elements.get('#redwalaOpenTolerance').checked = false;
+  elements.get('#redwalaOpenToleranceMax').value = '0.25';
   elements.get('#monthlyFilter').checked = false;
   elements.get('#pdhlFilter').checked = true;
   elements.get('#pdhlMax').value = '2.75';
@@ -317,6 +327,8 @@ test('background config refresh preserves toggle drafts and typed credentials', 
   assert.equal(elements.get('#monthlyFilter').checked, false);
   assert.equal(elements.get('#pdhlFilter').checked, true);
   assert.equal(elements.get('#pdhlMax').value, '2.75');
+  assert.equal(elements.get('#redwalaOpenTolerance').checked, false);
+  assert.equal(elements.get('#redwalaOpenToleranceMax').value, '0.25');
   assert.equal(elements.get('#clientId').value, 'EDITED');
   assert.equal(elements.get('#accessToken').value, 'NEW_TOKEN');
   assert.equal(elements.get('#accessToken').required, true);
@@ -372,7 +384,8 @@ test('stale config response cannot replace newly saved filter state', async () =
 test('setup-specific price controls round trip decimals and reject invalid percentages', async () => {
   const {context, elements} = dashboard();
   context.fetch = async () => ({ok: true, json: async () => ({volume_filters: {
-    redwala_open_previous_close: true, redwala_open_gap_max: 1.25, pdhl_filter: true, pdhl_max: 3.75
+    redwala_open_previous_close: true, redwala_open_gap_max: 1.25, pdhl_filter: true, pdhl_max: 3.75,
+    possible_open_pre_close: true, possible_open_pre_close_max: 1.5
   }})});
   await vm.runInContext('refreshConfig()', context);
   assert.equal(elements.get('#redwalaOpenPreviousClose').checked, true);
@@ -380,10 +393,21 @@ test('setup-specific price controls round trip decimals and reject invalid perce
   const settings = vm.runInContext('readFilterSettings()', context);
   assert.equal(settings.redwala_open_gap_max, 1.25);
   assert.equal(settings.pdhl_max, 3.75);
+  assert.equal(elements.get('#possibleOpenPreClose').checked, true);
+  assert.equal(elements.get('#possibleOpenPreCloseMax').value, 1.5);
+  assert.equal(settings.possible_open_pre_close, true);
+  assert.equal(settings.possible_open_pre_close_max, 1.5);
   const summary = vm.runInContext('filterDescription(readFilterSettings())', context);
   assert.match(summary, /Possible Candidates only/);
+  assert.match(summary, /open or close absolute distance ≤ 1.25%/);
+  assert.match(summary, /Possible Candidates Open \/ Previous Close ON \(absolute opening difference ≤ 1.5%\)/);
   assert.match(summary, /first open > previous close > first close/);
-  for (const id of ['#redwalaOpenGapMax', '#pdhlMax']) {
+  elements.get('#redwalaOpenTolerance').checked = true;
+  elements.get('#redwalaOpenToleranceMax').value = '0.75';
+  assert.equal(vm.runInContext('readFilterSettings()', context).redwala_open_tolerance, true);
+  assert.equal(vm.runInContext('readFilterSettings()', context).redwala_open_tolerance_max, .75);
+  assert.match(vm.runInContext('filterDescription(readFilterSettings())', context), /up to 0.75% below/);
+  for (const id of ['#redwalaOpenGapMax', '#redwalaOpenToleranceMax', '#pdhlMax', '#possibleOpenPreCloseMax']) {
     for (const value of ['', '-1', 'NaN', 'Infinity']) {
       elements.get(id).value = value;
       assert.throws(() => vm.runInContext('readFilterSettings()', context), /percentages/);
@@ -590,4 +614,183 @@ test('explicit first direction overrides setup direction in the live confirmatio
   assert.equal(vm.runInContext("algoFirstSide({first_direction:'long'}, 'redwala')",context),'BUY');
   assert.equal(vm.runInContext("algoFirstSide({}, 'possible')",context),'BUY');
   assert.equal(vm.runInContext("algoFirstSide({}, 'redwala')",context),'SELL');
+});
+
+
+test('dashboard absolute volume filter is strict, preserves badge priority and sorts by opening turnover', () => {
+  const {context, elements} = dashboard();
+  context.fetch = () => { throw new Error('Display filter must not request the server'); };
+  const stocks = [
+    {...fixtures()[1], symbol: 'LOW', today_opening_volume: 36047, first_candle_turnover: 900},
+    {...fixtures()[0], symbol: 'EQUAL', today_opening_volume: 100000, first_candle_turnover: 900},
+    {...fixtures()[0], symbol: 'PLAINLOW', today_opening_volume: 100001, first_candle_turnover: 40},
+    {...fixtures()[1], symbol: 'RED', today_opening_volume: 100002, first_candle_turnover: 20, first_candle_low_break: true},
+    {...fixtures()[0], symbol: 'GREEN', today_opening_volume: 100003, first_candle_turnover: 30, previous_day_high_cross: true},
+    {...fixtures()[0], symbol: 'PLAINHIGH', today_opening_volume: 100004, first_candle_turnover: 50},
+    {...fixtures()[1], symbol: 'MISSING', today_opening_volume: null},
+    {...fixtures()[1], symbol: 'UNKNOWN'},
+    {...fixtures()[1], symbol: 'INVALID', today_opening_volume: NaN},
+    {...fixtures()[0], symbol: 'REJECTED', today_opening_volume: 200000, qualifies_scan: false},
+  ];
+  context.state = {stocks, status: 'Live', unresolved_symbols: []};
+  const symbols = () => [...elements.get('#stockRows').innerHTML.matchAll(/<strong>([A-Z]+)<\/strong>/g)].map(m => m[1]);
+  vm.runInContext('renderState(state)', context);
+  assert.ok(symbols().includes('LOW'));
+  assert.equal(elements.get('#dashboardVolumeMin').value, 100000);
+  elements.get('#dashboardVolumeEnabled').checked = true;
+  elements.get('#dashboardVolumeEnabled').listeners.change();
+  assert.deepEqual(symbols(), ['GREEN', 'RED', 'PLAINHIGH', 'PLAINLOW']);
+  assert.match(elements.get('#dashboardVolumeSummary').textContent, /Showing 4 of 9/);
+  assert.equal(elements.get('#stockCount').textContent, '9/10');
+  assert.equal(stocks[0].symbol, 'LOW');
+  assert.equal(stocks[0].qualifies_scan, true);
+  elements.get('#setupFilter').value = 'redwala';
+  vm.runInContext('renderState(state)', context);
+  assert.deepEqual(symbols(), ['RED']);
+  elements.get('#dashboardVolumeMin').value = '200000';
+  elements.get('#dashboardVolumeMin').listeners.input();
+  assert.match(elements.get('#stockRows').innerHTML, /No setups have first-candle volume strictly above/);
+  elements.get('#dashboardVolumeEnabled').checked = false;
+  elements.get('#dashboardVolumeEnabled').listeners.change();
+  assert.ok(symbols().includes('LOW'));
+});
+
+test('dashboard volume settings survive reload and polling, reject invalid thresholds, and tolerate unavailable storage', () => {
+  const saved = new Map();
+  const storage = {getItem: key => saved.get(key) || null, setItem: (key, value) => saved.set(key, value)};
+  const {context, elements} = dashboard(storage);
+  elements.get('#dashboardVolumeMin').value = '125000';
+  elements.get('#dashboardVolumeEnabled').checked = true;
+  elements.get('#dashboardVolumeEnabled').listeners.change();
+  const restored = dashboard(storage);
+  assert.equal(restored.elements.get('#dashboardVolumeEnabled').checked, true);
+  assert.equal(restored.elements.get('#dashboardVolumeMin').value, 125000);
+  for (const value of ['', '-1', '1.5', 'NaN', 'Infinity', '9007199254740992']) {
+    elements.get('#dashboardVolumeMin').value = value;
+    elements.get('#dashboardVolumeMin').listeners.input();
+    assert.equal(elements.get('#dashboardVolumeError').hidden, false);
+    assert.equal(vm.runInContext('dashboardVolumeFilter.minimum', context), 125000);
+  }
+  context.state = {stocks: [], status: 'Live', unresolved_symbols: []};
+  vm.runInContext('renderState(state); renderState(state)', context);
+  assert.equal(elements.get('#dashboardVolumeMin').value, '9007199254740992');
+  elements.get('#dashboardVolumeEnabled').checked = false;
+  elements.get('#dashboardVolumeEnabled').listeners.change();
+  assert.equal(vm.runInContext('dashboardVolumeFilter.enabled', context), false);
+  for (const bad of ['broken', '{}', '{"enabled":true,"minimum":-1}']) {
+    saved.set('scanner.dashboardVolume.v1', bad);
+    assert.equal(dashboard(storage).elements.get('#dashboardVolumeEnabled').checked, false);
+  }
+  const blocked = dashboard({getItem() {throw new Error('blocked');}, setItem() {throw new Error('blocked');}});
+  blocked.elements.get('#dashboardVolumeEnabled').checked = true;
+  assert.doesNotThrow(() => blocked.elements.get('#dashboardVolumeEnabled').listeners.change());
+});
+
+
+test('shared filters use a strict volume minimum and inclusive price maximum', () => {
+  const {context, elements} = dashboard();
+  const stocks = [
+    {...fixtures()[0],symbol:'LIVEONLY',today_opening_volume:100001,first_candle_volume:100001,ltp:250,first_candle_close:251,first_candle_turnover:30},
+    {...fixtures()[1],symbol:'REPLAYONLY',today_opening_volume:100001,first_candle_volume:100001,ltp:251,first_candle_close:250,first_candle_turnover:20},
+    {...fixtures()[0],symbol:'LOWVOL',today_opening_volume:100000,first_candle_volume:100000,ltp:240,first_candle_close:240},
+    {...fixtures()[0],symbol:'MISSING',today_opening_volume:100001,first_candle_volume:100001,ltp:null,first_candle_close:null},
+  ];
+  context.state={stocks,status:'Live',unresolved_symbols:[]};
+  context.result={stocks,target_date:'2026-10-01',tested_count:4,qualified_count:4,candidate_count:3,error_count:0};
+  vm.runInContext('renderState(state); renderBacktest(result)',context);
+  elements.get('#dashboardVolumeEnabled').checked=true;
+  elements.get('#dashboardVolumeEnabled').listeners.change();
+  elements.get('#dashboardPriceEnabled').checked=true;
+  elements.get('#dashboardPriceEnabled').listeners.change();
+  assert.match(elements.get('#stockRows').innerHTML, /<strong>LIVEONLY<\/strong>/);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML, /<strong>(REPLAYONLY|LOWVOL|MISSING)<\/strong>/);
+  assert.match(elements.get('#backtestRows').innerHTML, /<strong>REPLAYONLY<\/strong>/);
+  assert.doesNotMatch(elements.get('#backtestRows').innerHTML, /<strong>(LIVEONLY|LOWVOL|MISSING)<\/strong>/);
+  assert.match(elements.get('#backtestDisplaySummary').textContent,/Showing 1 of 4/);
+  elements.get('#dashboardPriceMax').value='250.5';
+  elements.get('#dashboardPriceMax').listeners.input();
+  stocks[0].ltp=250.75;
+  vm.runInContext('renderState(state)',context);
+  assert.match(elements.get('#stockRows').innerHTML,/No setups match the display filters/);
+  assert.match(elements.get('#backtestRows').innerHTML,/REPLAYONLY/);
+  elements.get('#dashboardVolumeMin').value='100001';
+  elements.get('#dashboardVolumeMin').listeners.input();
+  assert.match(elements.get('#backtestRows').innerHTML,/No setups match the display filters/);
+});
+
+test('price filter survives reload and rejects invalid drafts without changing last applied setting', () => {
+  const saved=new Map();
+  const storage={getItem:key=>saved.get(key)||null,setItem:(key,value)=>saved.set(key,value)};
+  const {context,elements}=dashboard(storage);
+  elements.get('#dashboardPriceEnabled').checked=true;
+  elements.get('#dashboardPriceMax').value='250.75';
+  elements.get('#dashboardPriceMax').listeners.input();
+  const reloaded=dashboard(storage);
+  assert.equal(reloaded.elements.get('#dashboardPriceEnabled').checked,true);
+  assert.equal(reloaded.elements.get('#dashboardPriceMax').value,250.75);
+  for(const value of ['', '-1', 'NaN', 'Infinity']) {
+    elements.get('#dashboardPriceMax').value=value;
+    elements.get('#dashboardPriceMax').listeners.input();
+    assert.equal(vm.runInContext('dashboardPriceFilter.maximum',context),250.75);
+    assert.equal(elements.get('#dashboardPriceError').hidden,false);
+  }
+  elements.get('#dashboardPriceEnabled').checked=false;
+  elements.get('#dashboardPriceEnabled').listeners.change();
+  assert.equal(vm.runInContext('dashboardPriceFilter.enabled',context),false);
+});
+
+test('backtest displays opening gap inputs separately from previous day change and warns about changed filters', () => {
+  const {context,elements}=dashboard();
+  const stock={...fixtures()[0],first_candle_open:202,first_candle_close:205,daily_filter:{...fixtures()[0].daily_filter,previous_close:200,percent_change:6.6}};
+  context.result={stocks:[stock],target_date:'2026-10-01',tested_count:1,qualified_count:1,candidate_count:1,error_count:0};
+  vm.runInContext('renderBacktest(result)',context);
+  assert.match(elements.get('#backtestRows').innerHTML,/Open 202.00/);
+  assert.match(elements.get('#backtestRows').innerHTML,/Prev close 200.00 .* Open gap 1.000%/);
+  assert.equal(elements.get('#backtestFiltersStatus').hidden,true);
+  elements.get('#possibleOpenPreClose').checked=true;
+  elements.get('#possibleOpenPreCloseMax').value='3.5';
+  elements.get('#volumeFiltersForm').listeners.change();
+  assert.equal(elements.get('#backtestFiltersStatus').hidden,false);
+});
+
+test('backtest refuses results when server did not use requested opening gap setting', async () => {
+  const {context,elements}=dashboard();
+  elements.get('#backtestDate').value='2026-10-01';
+  elements.get('#possibleOpenPreClose').checked=true;
+  elements.get('#possibleOpenPreCloseMax').value='3.5';
+  context.fetch=async url=>({ok:true,json:async()=>url==='/api/backtest'
+    ? {stocks:[],target_date:'2026-10-01',volume_filters:{possible_open_pre_close:false}}
+    : {stocks:[],unresolved_symbols:[],status:'Idle',message:'Saved'}});
+  await vm.runInContext('runBacktest()',context);
+  assert.match(elements.get('#backtestMessage').textContent,/different Open \/ Previous Close settings/);
+  assert.equal(vm.runInContext('lastBacktestResult',context),null);
+  assert.equal(elements.get('#possibleOpenPreClose').disabled,false);
+});
+
+
+test('date inputs and candle labels use IST even across UTC and month boundaries', () => {
+  const {context} = dashboard();
+  assert.equal(vm.runInContext("fmtDateInput(new Date('2026-10-31T20:00:00Z'))",context),'2026-11-01');
+  assert.equal(vm.runInContext("fmtDateInput(new Date('2026-10-31T20:00:00Z'), -1)",context),'2026-10-31');
+  assert.equal(vm.runInContext("fmtDateInput(new Date('2026-10-31T20:00:00Z'), -60)",context),'2026-09-02');
+  assert.equal(vm.runInContext("fmtTime('2026-10-30T15:17:00+05:30').slice(0,5)",context),'15:17');
+  assert.equal(vm.runInContext("fmtTime('2026-10-30T09:17:00+05:30').slice(0,5)",context),'09:17');
+});
+
+
+test('price maximum preserves legacy saved values and includes below/equal prices', () => {
+  const saved=new Map([['scanner.dashboardPrice.v1', JSON.stringify({enabled:true,minimum:250})]]);
+  const storage={getItem:key=>saved.get(key)||null,setItem:(key,value)=>saved.set(key,value)};
+  const {context,elements}=dashboard(storage);
+  assert.equal(elements.get('#dashboardPriceMax').value,250);
+  assert.equal(elements.get('#dashboardPriceEnabled').checked,true);
+  for (const [price,expected] of [[100,true],[250,true],[250.01,false],[0,false],[-1,false],[null,false],[NaN,false]]) {
+    context.row={ltp:price,first_candle_close:price};
+    assert.equal(vm.runInContext('matchesDashboardPrice(row)',context),expected);
+    assert.equal(vm.runInContext('matchesDashboardPrice(row,true)',context),expected);
+  }
+  assert.match(vm.runInContext('displayFilterDescription()',context),/LTP <= Rs 250.00/);
+  elements.get('#dashboardPriceMax').value='300';
+  elements.get('#dashboardPriceMax').listeners.input();
+  assert.deepEqual(JSON.parse(saved.get('scanner.dashboardPrice.v1')),{enabled:true,maximum:300});
 });

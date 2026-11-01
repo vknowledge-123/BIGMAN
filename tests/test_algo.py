@@ -615,12 +615,15 @@ def test_position_match_ignores_other_products():
     assert position_qty(rows,'1')==-20
 
 
-@pytest.mark.parametrize('setup,enabled,limit,passes', [
-    ('redwala', False, 0, True), ('redwala', True, 1, True),
-    ('redwala', True, .99, False), ('possible', True, 4, True),
-    ('possible', True, 3.99, False),
+@pytest.mark.parametrize('setup,enabled,limit,passes,gap_limit', [
+    ('redwala', False, 0, True, None), ('redwala', True, 1, True, None),
+    ('redwala', True, .99, False, None), ('possible', True, 4, True, None),
+    ('possible', True, 3.99, False, None),
+    ('possible', True, 4, True, 1), ('possible', True, 4, False, .99),
+    ('redwala', False, 0, True, 0),
 ])
-def test_algo_backtest_obeys_setup_price_filters(env, monkeypatch, setup, enabled, limit, passes):
+@pytest.mark.parametrize('wide_side', [None, 'open', 'close', 'below_on', 'below_off', 'outside_on'])
+def test_algo_backtest_obeys_setup_price_filters(env, monkeypatch, setup, enabled, limit, passes, gap_limit, wide_side):
     from app.schemas import VolumeFilterSettings
     from app.daily_filter import calculate_daily_filter
     from test_daily_filter import daily_data
@@ -632,11 +635,20 @@ def test_algo_backtest_obeys_setup_price_filters(env, monkeypatch, setup, enable
     bars = [Candle(first - timedelta(days=n), 100, 101, 100, 101, 100_000) for n in (1, 2, 3)]
     bars += [Candle(first, 101, max(101, close), min(101, close), close, 500_000),
              Candle(first + timedelta(minutes=1), close, close, close, close, 100)]
+    if setup == 'redwala' and wide_side == 'open': bars[-2].open = bars[-2].high = 103
+    if setup == 'redwala' and wide_side == 'close': bars[-2].close = bars[-2].low = 97
     daily = {**calculate_daily_filter(daily_data(), day), 'previous_close': 100,
              'previous_high': 104, 'previous_low': 100}
     engine._volume_filters = VolumeFilterSettings(
+        possible_open_pre_close=gap_limit is not None,
+        possible_open_pre_close_max=gap_limit if gap_limit is not None else 1,
         redwala_open_previous_close=enabled if setup == 'redwala' else False,
         redwala_open_gap_max=limit, pdhl_filter=True, pdhl_max=limit if setup == 'possible' else 0)
+    if setup == 'redwala' and wide_side in ('below_on', 'below_off', 'outside_on'):
+        bars[-2].open = bars[-2].high = 99.49 if wide_side == 'outside_on' else 99.5
+        engine._volume_filters = engine._volume_filters.model_copy(update={
+            'redwala_open_tolerance': wide_side != 'below_off'})
+        passes = not enabled or wide_side == 'below_on'
     instrument = engine._states['AAA'].instrument
     monkeypatch.setattr(engine.resolver, 'resolve', lambda *_: ({'AAA': instrument}, []))
     monkeypatch.setattr(engine, '_client', lambda: None)

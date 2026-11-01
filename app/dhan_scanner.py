@@ -890,10 +890,11 @@ class ScannerEngine:
             return False
         return ScannerEngine._previous_day_crosses(second, daily, session, False, True)["previous_day_low_cross"]
 
-    def backtest_date(self, target_date: date, scan_type: str = "opening") -> dict[str, Any]:
+    def backtest_date(self, target_date: date, scan_type: str = "opening",
+                      *, volume_filters: VolumeFilterSettings | None = None) -> dict[str, Any]:
         # One run uses one immutable settings snapshot even if Live settings change.
         previous = getattr(self._request_context, "volume_filters", None)
-        self._request_context.volume_filters = self._volume_filters
+        self._request_context.volume_filters = volume_filters if volume_filters is not None else self._volume_filters
         try:
             return self._backtest_date(target_date, scan_type)
         finally:
@@ -1075,6 +1076,7 @@ class ScannerEngine:
             **qualification,
             "daily_filter": daily_filter,
             "first_candle_open": signal.first.open,
+            "first_candle_close": signal.first.close,
             "first_candle_high": signal.first.high,
             "is_fno": instrument.symbol in FNO_SYMBOLS,
             "status": "candidate" if qualification["possible_candidate"] else "Retest Break confirmed" if pattern["retest_break"] else "checked",
@@ -2196,6 +2198,7 @@ class ScannerEngine:
             "qualifies_scan": state.qualifies_scan,
             "daily_filter": state.daily_filter,
             "first_candle_open": first_opening.open if first_opening else None,
+            "first_candle_close": first_opening.close if first_opening else None,
             "first_candle_high": first_opening.high if first_opening else None,
             "first_open_equals_high": bool(first_opening and first_opening.open == first_opening.high),
             "first_open_equals_low": bool(first_opening and first_opening.open == first_opening.low),

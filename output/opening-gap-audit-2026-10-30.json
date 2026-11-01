@@ -1,0 +1,82 @@
+[
+  {
+    "symbol": "KRISHNADEF",
+    "previous_date": "2026-10-29",
+    "previous_close": 1150.3,
+    "first_open": 1190.0,
+    "first_close": 1220.7,
+    "opening_gap_pct": 3.45127,
+    "passes_3_5_pct": true,
+    "first_volume": 23663.0
+  },
+  {
+    "symbol": "SANOFI",
+    "previous_date": "2026-10-29",
+    "previous_close": 3189.5,
+    "first_open": 3265.0,
+    "first_close": 3309.8,
+    "opening_gap_pct": 2.36714,
+    "passes_3_5_pct": true,
+    "first_volume": 5613.0
+  },
+  {
+    "symbol": "STLNETWORK",
+    "previous_date": "2026-10-29",
+    "previous_close": 35.87,
+    "first_open": 35.05,
+    "first_close": 37.5,
+    "opening_gap_pct": 2.28603,
+    "passes_3_5_pct": true,
+    "first_volume": 1529673.0
+  },
+  {
+    "symbol": "PNGJL",
+    "previous_date": "2026-10-29",
+    "previous_close": 583.7,
+    "first_open": 586.0,
+    "first_close": 589.05,
+    "opening_gap_pct": 0.39404,
+    "passes_3_5_pct": true,
+    "first_volume": 38929.0
+  },
+  {
+    "symbol": "MARSONS",
+    "previous_date": "2026-10-29",
+    "previous_close": 124.05,
+    "first_open": 125.99,
+    "first_close": 134.58,
+    "opening_gap_pct": 1.56389,
+    "passes_3_5_pct": true,
+    "first_volume": 206528.0
+  },
+  {
+    "symbol": "RKFORGE",
+    "previous_date": "2026-10-29",
+    "previous_close": 672.2,
+    "first_open": 671.95,
+    "first_close": 681.4,
+    "opening_gap_pct": 0.03719,
+    "passes_3_5_pct": true,
+    "first_volume": 48239.0
+  },
+  {
+    "symbol": "SHILPAMED",
+    "previous_date": "2026-10-29",
+    "previous_close": 935.6,
+    "first_open": 955.9,
+    "first_close": 964.8,
+    "opening_gap_pct": 2.16973,
+    "passes_3_5_pct": true,
+    "first_volume": 26570.0
+  },
+  {
+    "symbol": "INOXINDIA",
+    "previous_date": "2026-10-29",
+    "previous_close": 1898.8,
+    "first_open": 1927.3,
+    "first_close": 1957.3,
+    "opening_gap_pct": 1.50095,
+    "passes_3_5_pct": true,
+    "first_volume": 5296.0
+  }
+]

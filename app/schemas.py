@@ -16,8 +16,12 @@ class VolumeFilterSettings(BaseModel):
     last_two_days_filter: bool = False
     redwala_open_previous_close: bool = False
     redwala_open_gap_max: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    redwala_open_tolerance: bool = False
+    redwala_open_tolerance_max: float = Field(default=0.5, ge=0, allow_inf_nan=False)
     pdhl_filter: bool = False
     pdhl_max: float = Field(default=4.0, ge=0, allow_inf_nan=False)
+    possible_open_pre_close: bool = False
+    possible_open_pre_close_max: float = Field(default=1.0, ge=0, allow_inf_nan=False)
 
 
 class CredentialsIn(BaseModel):
@@ -33,6 +37,7 @@ class SymbolsIn(BaseModel):
 class BacktestIn(BaseModel):
     target_date: date
     scan_type: Literal["opening"] = "opening"
+    volume_filters: VolumeFilterSettings | None = None
 
 
 class MessageOut(BaseModel):
@@ -82,6 +87,7 @@ class QualificationFields(BaseModel):
     redwala_gira: bool = False
     qualifies_scan: bool = False
     first_candle_open: float | None = None
+    first_candle_close: float | None = None
     first_candle_high: float | None = None
     first_open_equals_high: bool = False
     first_open_equals_low: bool = False

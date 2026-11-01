@@ -10,9 +10,20 @@ const els = {
   lastTwoDaysFilter: qs("#lastTwoDaysFilter"),
   redwalaOpenPreviousClose: qs("#redwalaOpenPreviousClose"),
   redwalaOpenGapMax: qs("#redwalaOpenGapMax"),
+  redwalaOpenTolerance: qs("#redwalaOpenTolerance"),
+  redwalaOpenToleranceMax: qs("#redwalaOpenToleranceMax"),
   pdhlFilter: qs("#pdhlFilter"),
   pdhlMax: qs("#pdhlMax"),
+  possibleOpenPreClose: qs("#possibleOpenPreClose"),
+  possibleOpenPreCloseMax: qs("#possibleOpenPreCloseMax"),
   setupFilter: qs("#setupFilter"),
+  dashboardVolumeEnabled: qs("#dashboardVolumeEnabled"),
+  dashboardVolumeMin: qs("#dashboardVolumeMin"),
+  dashboardVolumeError: qs("#dashboardVolumeError"),
+  dashboardVolumeSummary: qs("#dashboardVolumeSummary"),
+  dashboardPriceEnabled: qs("#dashboardPriceEnabled"),
+  dashboardPriceMax: qs("#dashboardPriceMax"),
+  dashboardPriceError: qs("#dashboardPriceError"),
   liveTurnoverSummary: qs("#liveTurnoverSummary"),
   backtestTurnoverSummary: qs("#backtestTurnoverSummary"),
   saveVolumeFilters: qs("#saveVolumeFilters"),
@@ -66,7 +77,10 @@ function filterDescription(settings = {}) {
 }
 
 function additionalOpeningDescription(settings = {}) {
-  return `Monthly Filter ${settings.monthly_filter ? "ON (open > highest close of prior 20 trading sessions)" : "OFF"}; Last 2 Days Filter ${settings.last_two_days_filter ? "ON (both green: no extra condition; red/doji: open > both prior closes)" : "OFF"}; PDHL ${settings.pdhl_filter ? `ON (Possible Candidates only: (previous high - low) / low ≤ ${settings.pdhl_max ?? 4}%)` : "OFF"}; Redwala: turnover plus a red first candle with open = high; volume filters do not apply; Redwala Open / Previous Close ${settings.redwala_open_previous_close ? `ON (gap ≤ ${settings.redwala_open_gap_max ?? 1}%; first open > previous close > first close)` : "OFF"}`;
+  const redwalaOpeningRule = settings.redwala_open_tolerance
+    ? `opening tolerance ON (open at/above previous close or up to ${settings.redwala_open_tolerance_max ?? 0.5}% below); first close < previous close`
+    : "opening tolerance OFF; first open > previous close > first close";
+  return `Monthly Filter ${settings.monthly_filter ? "ON (open > highest close of prior 20 trading sessions)" : "OFF"}; Last 2 Days Filter ${settings.last_two_days_filter ? "ON (both green: no extra condition; red/doji: open > both prior closes)" : "OFF"}; PDHL ${settings.pdhl_filter ? `ON (Possible Candidates only: (previous high - low) / low ≤ ${settings.pdhl_max ?? 4}%)` : "OFF"}; Possible Candidates Open / Previous Close ${settings.possible_open_pre_close ? `ON (absolute opening difference ≤ ${settings.possible_open_pre_close_max ?? 1}%)` : "OFF"}; Redwala: turnover plus a red first candle with open = high; volume filters do not apply; Redwala Open or Close / Previous Close ${settings.redwala_open_previous_close ? `ON (open or close absolute distance ≤ ${settings.redwala_open_gap_max ?? 1}%; ${redwalaOpeningRule})` : "OFF"}`;
 }
 
 function turnoverDescription(settings = {}) {
@@ -94,6 +108,7 @@ function fmtTime(value) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: false,
     timeZone: "Asia/Kolkata",
   });
 }
@@ -115,11 +130,12 @@ function fmtCandle(row) {
   return `${start} - ${end}`;
 }
 
-function fmtDateInput(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function fmtDateInput(date, offsetDays = 0) {
+  const shifted = new Date(date.getTime() + offsetDays * 86400000);
+  const parts = new Intl.DateTimeFormat("en-GB", {timeZone: "Asia/Kolkata",
+    year: "numeric", month: "2-digit", day: "2-digit"}).formatToParts(shifted);
+  const part = type => parts.find(item => item.type === type).value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
 }
 
 function fmtBacktestCandle(start, color) {
@@ -251,7 +267,90 @@ async function runAction(button, fn) {
 }
 
 let lastLiveState = null;
+const dashboardVolumeStorageKey = "scanner.dashboardVolume.v1";
+let dashboardVolumeFilter = {enabled: false, minimum: 100000};
+
+function restoreDashboardVolumeFilter() {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(dashboardVolumeStorageKey));
+    if (saved && typeof saved.enabled === "boolean" && Number.isSafeInteger(saved.minimum) && saved.minimum >= 0) {
+      dashboardVolumeFilter = {enabled: saved.enabled, minimum: saved.minimum};
+    }
+  } catch (_) { /* Unavailable storage or invalid saved data: use defaults. */ }
+  els.dashboardVolumeEnabled.checked = dashboardVolumeFilter.enabled;
+  els.dashboardVolumeMin.value = dashboardVolumeFilter.minimum;
+}
+
+function matchesDashboardVolume(row, backtest = false) {
+  const volume = backtest ? row.first_candle_volume : row.today_opening_volume;
+  return !dashboardVolumeFilter.enabled || (Number.isFinite(volume) && volume > dashboardVolumeFilter.minimum);
+}
+
+function applyDashboardVolumeFilter() {
+  const raw = String(els.dashboardVolumeMin.value).trim();
+  const minimum = Number(raw);
+  const valid = raw !== "" && Number.isSafeInteger(minimum) && minimum >= 0;
+  const enabled = Boolean(els.dashboardVolumeEnabled.checked);
+  els.dashboardVolumeError.hidden = valid;
+  els.dashboardVolumeError.textContent = valid ? "" : "Enter a whole number of shares, zero or higher. The last valid threshold remains applied.";
+  if (!valid && enabled) {
+    els.dashboardVolumeEnabled.checked = dashboardVolumeFilter.enabled;
+    return;
+  }
+  dashboardVolumeFilter = {enabled, minimum: valid ? minimum : dashboardVolumeFilter.minimum};
+  try { window.localStorage.setItem(dashboardVolumeStorageKey, JSON.stringify(dashboardVolumeFilter)); }
+  catch (_) { /* Filtering still works without browser storage. */ }
+  if (lastLiveState) renderState(lastLiveState);
+  if (lastBacktestResult) renderBacktest(lastBacktestResult);
+}
+
+restoreDashboardVolumeFilter();
+els.dashboardVolumeEnabled.addEventListener("change", applyDashboardVolumeFilter);
+els.dashboardVolumeMin.addEventListener("input", applyDashboardVolumeFilter);
 let lastBacktestResult = null;
+const dashboardPriceStorageKey = "scanner.dashboardPrice.v1";
+let dashboardPriceFilter = {enabled: false, maximum: 250};
+try {
+  const saved = JSON.parse(window.localStorage.getItem(dashboardPriceStorageKey));
+  // Preserve the entered value from the former minimum-price control.
+  const maximum = saved?.maximum ?? saved?.minimum;
+  if (saved && typeof saved.enabled === "boolean" && Number.isFinite(maximum) && maximum >= 0) {
+    dashboardPriceFilter = {enabled: saved.enabled, maximum};
+  }
+} catch (_) { /* Use defaults when storage is unavailable or malformed. */ }
+els.dashboardPriceEnabled.checked = dashboardPriceFilter.enabled;
+els.dashboardPriceMax.value = dashboardPriceFilter.maximum;
+
+function matchesDashboardPrice(row, backtest = false) {
+  const price = backtest ? row.first_candle_close : row.ltp;
+  return !dashboardPriceFilter.enabled || (Number.isFinite(price) && price > 0 && price <= dashboardPriceFilter.maximum);
+}
+
+function applyDashboardPriceFilter() {
+  const raw = String(els.dashboardPriceMax.value).trim();
+  const maximum = Number(raw);
+  const valid = raw !== "" && Number.isFinite(maximum) && maximum >= 0;
+  const enabled = Boolean(els.dashboardPriceEnabled.checked);
+  els.dashboardPriceError.hidden = valid;
+  els.dashboardPriceError.textContent = valid ? "" : "Enter a finite price, zero or higher. The last valid maximum remains applied.";
+  if (!valid && enabled) {
+    els.dashboardPriceEnabled.checked = dashboardPriceFilter.enabled;
+    return;
+  }
+  dashboardPriceFilter = {enabled, maximum: valid ? maximum : dashboardPriceFilter.maximum};
+  try { window.localStorage.setItem(dashboardPriceStorageKey, JSON.stringify(dashboardPriceFilter)); } catch (_) {}
+  if (lastLiveState) renderState(lastLiveState);
+  if (lastBacktestResult) renderBacktest(lastBacktestResult);
+}
+els.dashboardPriceEnabled.addEventListener("change", applyDashboardPriceFilter);
+els.dashboardPriceMax.addEventListener("input", applyDashboardPriceFilter);
+
+function displayFilterDescription(backtest = false) {
+  const filters = [];
+  if (dashboardVolumeFilter.enabled) filters.push(`first-candle volume > ${fmtInt(dashboardVolumeFilter.minimum)} shares`);
+  if (dashboardPriceFilter.enabled) filters.push(`${backtest ? "first-candle close" : "LTP"} <= Rs ${fmtNumber(dashboardPriceFilter.maximum)}`);
+  return filters.length ? filters.join("; ") : "display filters OFF";
+}
 
 function matchesSetup(row) {
   const selected = els.setupFilter.value || "all";
@@ -272,7 +371,7 @@ function hasBreakoutBadge(row) {
 function compareLiveStocks(a, b) {
   const priority = Number(hasBreakoutBadge(b)) - Number(hasBreakoutBadge(a));
   if (priority) return priority;
-  if (!hasBreakoutBadge(a)) return 0;
+  if (!hasBreakoutBadge(a) && !dashboardVolumeFilter.enabled && !dashboardPriceFilter.enabled) return 0;
   const turnover = row => Number.isFinite(row.first_candle_turnover) && row.first_candle_turnover >= 0
     ? row.first_candle_turnover : -1;
   return turnover(b) - turnover(a);
@@ -286,8 +385,11 @@ function renderState(state) {
   els.connectionBadge.textContent = state.connected ? "Live Connected" : state.running ? "Connecting" : "Idle";
   els.connectionBadge.className = `badge ${state.connected ? "live" : state.status.toLowerCase().includes("error") ? "error" : "neutral"}`;
   els.updatedAt.textContent = `Updated ${fmtTime(state.updated_at)}`;
-  const visibleStocks = state.stocks.filter((row) => (row.qualifies_scan === true || row.awaiting_confirmation) && matchesSetup(row))
-    .sort(compareLiveStocks);
+  const setupStocks = state.stocks.filter((row) => (row.qualifies_scan === true || row.awaiting_confirmation) && matchesSetup(row));
+  const visibleStocks = setupStocks.filter(row => matchesDashboardVolume(row) && matchesDashboardPrice(row)).sort(compareLiveStocks);
+  els.dashboardVolumeSummary.textContent = dashboardVolumeFilter.enabled || dashboardPriceFilter.enabled
+    ? `Showing ${visibleStocks.length} of ${setupStocks.length} matching setups: ${displayFilterDescription()}. ${setupStocks.length - visibleStocks.length} hidden by display filters. Qualified Stocks counts all scanner matches.`
+    : `Dashboard volume filter OFF. Showing ${visibleStocks.length} matching setups.`;
   const confirmedCount = state.stocks.filter((row) => row.qualifies_scan === true).length;
   const awaitingCount = state.stocks.filter((row) => row.awaiting_confirmation).length;
   els.stockCount.textContent = `${confirmedCount}/${state.stocks.length}`;
@@ -306,7 +408,11 @@ function renderState(state) {
   els.topChange.textContent = top && top.percent_change !== null ? `${fmtNumber(top.percent_change, 2)}%` : "--";
 
   if (!visibleStocks.length) {
-    const message = state.stocks.length
+    const message = dashboardPriceFilter.enabled && setupStocks.length
+      ? `No setups match the display filters: ${displayFilterDescription()}. Adjust the limits or turn the display filters OFF.`
+      : dashboardVolumeFilter.enabled && setupStocks.length
+      ? `No setups have first-candle volume strictly above ${fmtInt(dashboardVolumeFilter.minimum)} shares. Lower the dashboard threshold or turn this display filter OFF.`
+      : state.stocks.length
       ? `No matching setups yet: ${turnoverDescription(state.volume_filters)}; Redwala requires a red first candle with open = high, without volume filters`
       : "No stocks loaded";
     els.rows.innerHTML = `<tr><td colspan="18" class="empty">${message}</td></tr>`;
@@ -400,10 +506,16 @@ function renderBacktest(result) {
     els.backtestMessage.textContent = partialNotice + els.backtestMessage.textContent + `; ${errors.slice(0, 3).join("; ")}${errors.length > 3 ? '; see Backtest data issues for all failures.' : ''}`;
     els.backtestMessage.style.color = "#c92a2a";
   }
-  const visibleStocks = result.stocks.filter((row) => row.qualifies_scan === true && matchesSetup(row));
+  const setupStocks = result.stocks.filter((row) => row.qualifies_scan === true && matchesSetup(row));
+  const visibleStocks = setupStocks.filter(row => matchesDashboardVolume(row, true) && matchesDashboardPrice(row, true));
+  if (dashboardVolumeFilter.enabled || dashboardPriceFilter.enabled) visibleStocks.sort(compareLiveStocks);
+  qs('#backtestDisplaySummary').textContent = `Showing ${visibleStocks.length} of ${setupStocks.length} matching setups: ${displayFilterDescription(true)}. ${setupStocks.length - visibleStocks.length} hidden. Backtest totals above count all scanner matches.`;
+  updateBacktestFiltersStatus();
 
   if (!visibleStocks.length) {
-    const message = dataIssues.length ? 'No confirmed matches for this view. Some stocks could not be fully checked; see Backtest data issues.' : result.stocks.length
+    const message = setupStocks.length && (dashboardVolumeFilter.enabled || dashboardPriceFilter.enabled)
+      ? `No setups match the display filters: ${displayFilterDescription(true)}. Missing volume or close is excluded; rerun older backtests if needed.`
+      : dataIssues.length ? 'No confirmed matches for this view. Some stocks could not be fully checked; see Backtest data issues.' : result.stocks.length
       ? `No matching setups on this date: ${turnoverDescription(result.volume_filters)}; Redwala requires a red first candle with open = high, without volume filters`
       : "No stocks loaded";
     els.backtestRows.innerHTML = `<tr><td colspan="10" class="empty">${message}</td></tr>`;
@@ -429,7 +541,7 @@ function renderBacktest(result) {
           <div class="badge-stack">${candidateBadge}${fnoBadge}</div>
           ${algoRowButton(row, true)}
         </td>
-        <td>${fmtBacktestCandle(row.first_candle_start, row.first_candle_color)}</td>
+        <td>${fmtBacktestCandle(row.first_candle_start, row.first_candle_color)}${backtestOpeningPrices(row)}</td>
         <td title="First-candle turnover: ${fmtTurnover(row.first_candle_turnover)}">${fmtInt(row.first_candle_volume)}</td>
         <td title="${escapeHtml(samples)}">${fmtNumber(row.opening_volume_average, 0)}</td>
         <td><strong class="multiplier">${row.volume_multiplier === null ? "--" : `${fmtNumber(row.volume_multiplier, 2)}x`}</strong></td>
@@ -439,6 +551,26 @@ function renderBacktest(result) {
       </tr>
     `;
   }).join("");
+}
+
+function backtestOpeningPrices(row) {
+  const previous = row.daily_filter?.previous_close;
+  const gap = Number.isFinite(previous) && previous > 0 && Number.isFinite(row.first_candle_open)
+    ? Math.abs(row.first_candle_open - previous) / previous * 100 : null;
+  return `<div class="muted-small">Open ${fmtNumber(row.first_candle_open)} · Close ${fmtNumber(row.first_candle_close)}<br>Prev close ${fmtNumber(previous)} · Open gap ${fmtNumber(gap, 3)}%</div>`;
+}
+
+function updateBacktestFiltersStatus() {
+  const status = qs('#backtestFiltersStatus');
+  if (!lastBacktestResult) { status.hidden = true; return; }
+  let changed = true;
+  try {
+    const selected = readFilterSettings();
+    const used = normalizedFilterSettings(lastBacktestResult.volume_filters);
+    changed = Object.keys(selected).some(key => selected[key] !== used[key]);
+  } catch (_) {}
+  status.hidden = !changed;
+  status.textContent = changed ? "Scanner filters changed since this backtest. These are previous results; rerun the backtest to apply your selected scanner settings. Display volume and price filters apply immediately." : "";
 }
 
 async function runBacktest() {
@@ -453,7 +585,9 @@ async function runBacktest() {
   }
   setBusy(els.backtestButton, true);
   const controls = [els.dailyVolumeMax, els.minuteVolumeMin, els.firstCandleTurnoverMin,
-    els.todayOpenCross, els.monthlyFilter, els.lastTwoDaysFilter];
+    els.todayOpenCross, els.monthlyFilter, els.lastTwoDaysFilter, els.possibleOpenPreClose,
+    els.possibleOpenPreCloseMax, els.redwalaOpenPreviousClose, els.redwalaOpenGapMax,
+    els.redwalaOpenTolerance, els.redwalaOpenToleranceMax, els.pdhlFilter, els.pdhlMax];
   try {
     const settings = readFilterSettings();
     controls.forEach(control => { control.disabled = true; });
@@ -464,8 +598,12 @@ async function runBacktest() {
     els.backtestMessage.textContent = `Running ${els.backtestDate.value}...`;
     const result = await api("/api/backtest", {
       method: "POST",
-      body: JSON.stringify({ target_date: els.backtestDate.value, scan_type: 'opening' }),
+      body: JSON.stringify({ target_date: els.backtestDate.value, scan_type: 'opening', volume_filters: settings }),
     });
+    if (settings.possible_open_pre_close && (result.volume_filters?.possible_open_pre_close !== true
+      || result.volume_filters?.possible_open_pre_close_max !== settings.possible_open_pre_close_max)) {
+      throw new Error("Backtest returned different Open / Previous Close settings. Results were not displayed. Check that the updated server is running and rerun the backtest.");
+    }
     renderBacktest(result);
   } catch (error) {
     els.backtestMessage.textContent = error.message;
@@ -515,6 +653,8 @@ async function refreshConfig() {
       minuteVolumeMin: s.minute_volume_min, firstCandleTurnoverMin: s.first_candle_turnover_min / 10000000,
       todayOpenCross: s.today_open_cross, monthlyFilter: s.monthly_filter,
       lastTwoDaysFilter: s.last_two_days_filter, redwalaOpenPreviousClose: s.redwala_open_previous_close,
+      redwalaOpenTolerance: s.redwala_open_tolerance, redwalaOpenToleranceMax: s.redwala_open_tolerance_max,
+      possibleOpenPreClose: s.possible_open_pre_close, possibleOpenPreCloseMax: s.possible_open_pre_close_max,
       redwalaOpenGapMax: s.redwala_open_gap_max, pdhlFilter: s.pdhl_filter, pdhlMax: s.pdhl_max})) {
       if (!editedFilterFields.has(id) && !editedFilterFields.has('*')) {
         els[id][typeof value === 'boolean' ? 'checked' : 'value'] = value;
@@ -537,6 +677,8 @@ function normalizedFilterSettings(settings = {}) {
   return {daily_volume_max: 4, minute_volume_min: 4, first_candle_turnover_min: 30000000,
     today_open_cross: false, monthly_filter: false, last_two_days_filter: false,
     redwala_open_previous_close: false, redwala_open_gap_max: 1, pdhl_filter: false, pdhl_max: 4,
+    redwala_open_tolerance: false, redwala_open_tolerance_max: 0.5,
+    possible_open_pre_close: false, possible_open_pre_close_max: 1,
     ...settings};
 }
 
@@ -555,11 +697,13 @@ function readFilterSettings() {
   settings.monthly_filter = Boolean(els.monthlyFilter.checked);
   settings.last_two_days_filter = Boolean(els.lastTwoDaysFilter.checked);
   settings.redwala_open_previous_close = Boolean(els.redwalaOpenPreviousClose.checked);
+  settings.redwala_open_tolerance = Boolean(els.redwalaOpenTolerance.checked);
   settings.pdhl_filter = Boolean(els.pdhlFilter.checked);
-  for (const [key, control] of [["redwala_open_gap_max", els.redwalaOpenGapMax], ["pdhl_max", els.pdhlMax]]) {
+  settings.possible_open_pre_close = Boolean(els.possibleOpenPreClose.checked);
+  for (const [key, control] of [["redwala_open_gap_max", els.redwalaOpenGapMax], ["redwala_open_tolerance_max", els.redwalaOpenToleranceMax], ["pdhl_max", els.pdhlMax], ["possible_open_pre_close_max", els.possibleOpenPreCloseMax]]) {
     const value = Number(control.value);
     if (String(control.value).trim() === "" || !Number.isFinite(value) || value < 0) {
-      throw new Error("Opening-gap and PDHL percentages must be finite numbers greater than or equal to zero.");
+      throw new Error("Open-or-close distance, opening tolerance and PDHL percentages must be finite numbers greater than or equal to zero.");
     }
     settings[key] = value;
   }
@@ -567,6 +711,7 @@ function readFilterSettings() {
 }
 
 function updateFilterChangesStatus() {
+  updateBacktestFiltersStatus();
   let changed = true;
   try {
     const selected = readFilterSettings();
@@ -692,13 +837,9 @@ els.setupFilter.addEventListener("change", () => {
 window.addEventListener("load", async () => {
   if (window.lucide) window.lucide.createIcons();
   const today = new Date();
-  const earliest = new Date(today);
-  earliest.setDate(earliest.getDate() - 60);
-  const defaultDate = new Date(today);
-  defaultDate.setDate(defaultDate.getDate() - 1);
   els.backtestDate.max = fmtDateInput(today);
-  els.backtestDate.min = fmtDateInput(earliest);
-  els.backtestDate.value = fmtDateInput(defaultDate);
+  els.backtestDate.min = fmtDateInput(today, -60);
+  els.backtestDate.value = fmtDateInput(today, -1);
   setActiveView(window.location.hash === "#backtest" ? "backtest" : "live");
   try {
     await refreshConfig();

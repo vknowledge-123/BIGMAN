@@ -181,14 +181,24 @@ OIL</textarea>
         <p id="lastTwoDaysFilterHelp" class="muted-small">When ON, two green daily candles (close &gt; open) in the previous two trading sessions add no opening condition. If either candle is red or doji, today's open must be strictly above both closes. Both new filters apply to Possible Candidates and Retest Break in Live and Backtest, alongside existing rules. Redwala is unaffected by either filter. Missing history stays unresolved only for the setups that require it. Click Save &amp; Apply; rerun backtests after changes.</p>
         <label class="open-cross-toggle">
           <input id="redwalaOpenPreviousClose" type="checkbox" role="switch" aria-describedby="redwalaGapHelp" />
-          Redwala Open / Previous Close
+          Redwala Open or Close / Previous Close
         </label>
         <div class="filter-fields">
-          <label>Maximum opening gap (%)
+          <label>Maximum open or close distance (%)
             <input id="redwalaOpenGapMax" type="number" min="0" step="any" value="1" required />
           </label>
         </div>
-        <p id="redwalaGapHelp" class="muted-small">Redwala only. When ON, (first open − previous close) / previous close × 100 must not exceed your limit, and the first candle must open strictly above and close strictly below the previous trading day's close. Existing turnover, red candle and open = high rules still apply. OFF skips this additional condition.</p>
+        <p id="redwalaGapHelp" class="muted-small">Redwala only. When ON, either the first candle's open or close must be within your percentage limit of the previous trading day's close: |price − previous close| / previous close × 100 ≤ limit. The first candle must close strictly below the previous close. Its open must be strictly above the previous close unless Opening tolerance band is ON. Existing turnover, red candle and open = high rules still apply. OFF skips this additional condition, including opening tolerance.</p>
+        <label class="open-cross-toggle">
+          <input id="redwalaOpenTolerance" type="checkbox" role="switch" aria-describedby="redwalaToleranceHelp" />
+          Redwala Opening tolerance band
+        </label>
+        <div class="filter-fields">
+          <label>Maximum open below previous close (%)
+            <input id="redwalaOpenToleranceMax" type="number" min="0" step="any" value="0.5" required />
+          </label>
+        </div>
+        <p id="redwalaToleranceHelp" class="muted-small">Applies only when Redwala Open or Close / Previous Close is ON. Default OFF, limit 0.5%. ON allows an open at the previous close or below it by no more than this limit; opens above it remain allowed. Example: with previous close ₹200 and tolerance 0.5%, open ₹199 or higher passes the opening condition. OFF requires open strictly above the previous close. Close must still be below previous close, and the separate open-or-close distance limit and all other Redwala rules still apply. Used in Live and Backtest.</p>
         <label class="open-cross-toggle">
           <input id="pdhlFilter" type="checkbox" role="switch" aria-describedby="pdhlHelp" />
           PDHL · Possible Candidates only
@@ -199,6 +209,16 @@ OIL</textarea>
           </label>
         </div>
         <p id="pdhlHelp" class="muted-small">When ON, (previous high − previous low) / previous low × 100 must not exceed your limit. Equality passes. Applies only to Possible Candidates; Redwala and Retest Break are unaffected. Both new toggles use cached day levels in Live, scanner backtests and setup qualification for algo backtests. Missing required levels remain unresolved. Save &amp; Apply, then rerun backtests.</p>
+        <label class="open-cross-toggle">
+          <input id="possibleOpenPreClose" type="checkbox" role="switch" aria-describedby="possibleOpenPreCloseHelp" />
+          Open / Previous Close · Possible Candidates only
+        </label>
+        <div class="filter-fields">
+          <label>Maximum open / previous close difference (%)
+            <input id="possibleOpenPreCloseMax" type="number" min="0" step="any" value="1" required />
+          </label>
+        </div>
+        <p id="possibleOpenPreCloseHelp" class="muted-small">Default OFF, limit 1%. When ON, |first-candle open − previous trading-day close| / previous close × 100 must not exceed the limit. Both upward and downward gaps are checked; equality passes. Example: previous close ₹200 and limit 1% allows open ₹198 through ₹202. Applies only to Possible Candidates in Live, scanner backtests and algo backtest qualification. Redwala and Retest Break are unaffected. Uses cached previous close; missing data stays unresolved. Save &amp; Apply, then rerun backtests.</p>
         <div id="activeVolumeFilters" class="muted-small" role="status">Loading saved filters…</div>
         <p id="filterChangesStatus" class="muted-small" role="status" aria-live="polite">Run Backtest saves your selected filters before starting. Save &amp; Apply updates Live too.</p>
       </form>
@@ -233,10 +253,36 @@ OIL</textarea>
       <p class="muted-small">Retest Break: first candle red, followed only by green candles through the first high break. Confirmed after the breaking candle closes green. Requires the saved volume, turnover and enabled Today Open Cross, Monthly and Last 2 Days conditions. A red/doji before the break invalidates the sequence; no open = high requirement.</p>
 
       </div>
+      <section aria-label="Display filters for Live and Backtest">
+        <h3>Display Filters - Live &amp; Backtest</h3>
+        <div class="filter-fields">
+          <label class="open-cross-toggle">
+            <input id="dashboardVolumeEnabled" type="checkbox" role="switch" aria-describedby="dashboardVolumeHelp" />
+            Filter dashboard by first-candle volume
+          </label>
+          <label>First-candle volume greater than (shares)
+            <input id="dashboardVolumeMin" type="number" min="0" step="1" value="100000" required />
+          </label>
+        </div>
+        <p id="dashboardVolumeHelp" class="muted-small">Display filter for Live and Backtest, including Redwala. Default OFF. When ON, first-candle volume must be strictly above the threshold; equality and missing volume are excluded. Breakout badges remain first, with each group sorted by first-candle turnover, highest first. Changes apply immediately and are remembered in this browser. Scanner qualification and active algos are unchanged; backtest rows are filtered immediately without rerunning.</p>
+        <p id="dashboardVolumeError" class="unresolved" role="alert" hidden></p>
+        <div class="filter-fields">
+          <label class="open-cross-toggle">
+            <input id="dashboardPriceEnabled" type="checkbox" role="switch" aria-describedby="dashboardPriceHelp" />
+            Filter by stock price
+          </label>
+          <label>Maximum stock price (Rs)
+            <input id="dashboardPriceMax" type="number" min="0" step="any" value="250" required />
+          </label>
+        </div>
+        <p id="dashboardPriceHelp" class="muted-small">Default OFF, maximum Rs250. Live uses current LTP; Backtest uses the first candle's close. Price must be at or below your maximum; equality is included. Applies to every setup shown, together with the volume display filter. Missing prices are hidden when ON. Changes apply immediately and are remembered in this browser; active algos are unchanged.</p>
+        <p id="dashboardPriceError" class="unresolved" role="alert" hidden></p>
+      </section>
       <section id="liveView" class="view-pane">
         <div id="scanSummary" class="message">Prepare stocks before market open, then start Live before 9:15.</div>
         <p id="liveTurnoverSummary" class="muted-small">First-candle turnover = volume × close. Loading saved threshold…</p>
         <p id="morningSortHelp" class="muted-small">Live results show Possible Candidates and Redwala with high/low breakout badges first, sorted by first-candle turnover from highest to lowest. Other matches follow.</p>
+        <p id="dashboardVolumeSummary" class="muted-small" role="status"></p>
         <div id="scanIssues" class="scan-issues" role="status" hidden></div>
         <div id="openingLiveResults" class="table-wrap">
           <table class="live-table">
@@ -254,7 +300,7 @@ OIL</textarea>
                 <th>Open Volume</th>
                 <th>3D Avg</th>
                 <th>Prev Day SMA</th>
-                <th>Prev Day %</th>
+                <th title="Previous trading day close versus the day before; this is not today's opening gap">Prev Day %</th>
                 <th>1m Turnover</th>
                 <th>1m Volume</th>
                 <th>Candle</th>
@@ -272,6 +318,8 @@ OIL</textarea>
       </section>
 
       <section id="backtestView" class="view-pane" hidden>
+        <p id="backtestFiltersStatus" class="unresolved" role="status" hidden></p>
+        <p id="backtestDisplaySummary" class="muted-small" role="status"></p>
         <p id="backtestTurnoverSummary" class="muted-small">Backtests use the saved first-candle turnover threshold when the run starts.</p>
         <div class="backtest-toolbar">
           <label class="date-field">
@@ -305,7 +353,7 @@ OIL</textarea>
                 <th>3D Avg</th>
                 <th>Vol SMA</th>
                 <th>Prev Day SMA</th>
-                <th>Prev Day %</th>
+                <th title="Previous trading day close versus the day before; this is not today's opening gap">Prev Day %</th>
                 <th>1st Turnover</th>
                 <th>Status</th>
               </tr>

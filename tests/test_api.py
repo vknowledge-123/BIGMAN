@@ -91,6 +91,8 @@ def test_volume_settings_endpoint_persists_and_returns_current_settings():
     settings = {"daily_volume_max": 2.5, "minute_volume_min": 6, "first_candle_turnover_min": 12_500_000, "today_open_cross": True,
                 "monthly_filter": True, "last_two_days_filter": True,
                 "redwala_open_previous_close": True, "redwala_open_gap_max": 1.25,
+                "redwala_open_tolerance": True, "redwala_open_tolerance_max": .75,
+                "possible_open_pre_close": True, "possible_open_pre_close_max": 1.5,
                 "pdhl_filter": True, "pdhl_max": 4.5}
     with TestClient(app) as client:
         assert client.post("/api/volume-filters", json=settings).status_code == 200
@@ -100,7 +102,7 @@ def test_volume_settings_endpoint_persists_and_returns_current_settings():
             for value in (0, -2, "NaN", "Infinity"):
                 response = client.post("/api/volume-filters", json={**settings, field: value})
                 assert response.status_code == 422
-        for field in ("redwala_open_gap_max", "pdhl_max"):
+        for field in ("redwala_open_gap_max", "redwala_open_tolerance_max", "pdhl_max", "possible_open_pre_close_max"):
             for value in (-1, "NaN", "Infinity"):
                 assert client.post("/api/volume-filters", json={**settings, field: value}).status_code == 422
         assert client.get("/api/config").json()["volume_filters"] == settings

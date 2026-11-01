@@ -20,7 +20,9 @@ def app_ready(url=URL):
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(url + "/openapi.json", timeout=1) as response:
-            return json.load(response).get("info", {}).get("title") == "Dhan Turnover Scanner"
+            schema = json.load(response)
+            info = schema.get("info") if isinstance(schema, dict) else None
+            return isinstance(info, dict) and info.get("title") == "Dhan Turnover Scanner"
     except (OSError, ValueError, urllib.error.URLError):
         return False
 

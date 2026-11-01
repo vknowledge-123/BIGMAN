@@ -283,3 +283,17 @@ def test_existing_volume_settings_receive_default_turnover(tmp_path):
     assert loaded.daily_volume_max == 2.5
     assert loaded.minute_volume_min == 6
     assert loaded.first_candle_turnover_min == 30_000_000
+
+
+def test_request_filter_snapshot_is_cleared_after_failed_backtest(engine, monkeypatch):
+    live = VolumeFilterSettings(minute_volume_min=7)
+    chosen = VolumeFilterSettings(minute_volume_min=3)
+    engine._volume_filters = live
+    def fail(*_):
+        assert engine.volume_filters == chosen
+        raise RuntimeError('test download failure')
+    monkeypatch.setattr(engine, '_backtest_date', fail)
+    with pytest.raises(RuntimeError, match='test download failure'):
+        engine.backtest_date(SESSION, volume_filters=chosen)
+    assert engine.volume_filters == live
+    assert not hasattr(engine._request_context, 'volume_filters')
