@@ -25,11 +25,14 @@
   }
   function show(result) {
     preview = result;
+    const units = result.turnover_source_unit === 'rupees'
+      ? 'CSV turnover is in rupees; converted to crore by dividing by 1,00,00,000.'
+      : result.turnover_source_unit === 'crore' ? 'CSV turnover is already in crore.' : '';
     get('preopenRows').innerHTML = result.rows.map((row, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(row.symbol)}</td><td>${fmtNumber(row.price)}</td><td>${fmtNumber(row.change_percent)}</td><td>${fmtNumber(row.turnover_crore)}</td></tr>`).join('');
     get('preopenTable').hidden = !result.selected_count;
     get('preopenApply').disabled = !result.selected_count || applying;
     get('preopenApply').textContent = `Use ${result.selected_count} ${result.selected_count === 1 ? 'stock' : 'stocks'} in scanner`;
-    status(`${result.filename}: ${result.selected_count} selected from ${result.matched_count} matches (${result.settings.universe === 'fno' ? 'F&O' : 'Cash / non-F&O'}). ${result.total_rows} rows; ${result.invalid_rows} missing or invalid rows skipped; ${result.duplicate_rows} duplicates skipped. Uses the app's ${result.fno_list_count}-symbol F&O list from your scripts. Preview only until you use these stocks.`);
+    status(`${result.filename}: ${result.selected_count} selected from ${result.matched_count} matches (${result.settings.universe === 'fno' ? 'F&O' : 'Cash / non-F&O'}). Turnover: minimum ${result.settings.min_turnover} crore; maximum ${result.settings.max_turnover ?? 'no limit'}. ${units} ${result.total_rows} rows; ${result.invalid_rows} missing or invalid rows skipped; ${result.duplicate_rows} duplicates skipped. Uses the app's ${result.fno_list_count}-symbol F&O list from your scripts. Preview only until you use these stocks.`);
   }
   async function runPreview() {
     clearTimeout(timer);

@@ -119,6 +119,7 @@ OIL</textarea>
         <div class="panel-head"><h2>NSE Pre-open CSV · Stock selection</h2></div>
         <p class="muted-small">Upload the NSE pre-open CSV, filter the stocks, then replace the scanner list with the matches. These are pre-open turnover values, separate from the first-candle turnover setting below.</p>
         <p id="preopenSource" class="muted-small">No CSV loaded.</p>
+        <p class="muted-small">Turnover limits are always in crore. Detailed NSE exports with FINAL PRICE, FINAL VOLUME and VALUE in rupees are converted automatically (₹1 crore = ₹1,00,00,000); columns already labelled in crore are used directly.</p>
         <form id="preopenForm">
           <div class="filter-fields">
             <label>NSE CSV file<input id="preopenFile" type="file" accept=".csv,text/csv" /></label>

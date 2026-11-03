@@ -176,3 +176,91 @@ def test_csv_import_browser_workflow(integration):
             assert ctx.store.load().symbols == ['E2E']
         finally:
             browser.close()
+
+
+RAW_NSE_CSV = """SYMBOL,%CHANGE,FINAL PRICE,FINAL VOLUME,VALUE
+RAWLOW,1,100,24000,"24,00,000.00"
+RAWEDGE,1,100,25000,"25,00,000.00"
+RAWTHREE,1,100,300000,"3,00,00,000.00"
+RAWHIGH,1,100,350000,"3,50,00,000.00"
+HDFCBANK,1,100,400000,"4,00,00,000.00"
+"""
+
+
+@pytest.mark.parametrize("minimum,maximum,expected", [
+    (.25, None, ['RAWHIGH','RAWTHREE','RAWEDGE']),
+    (3, None, ['RAWHIGH','RAWTHREE']),
+    (3, 3, ['RAWTHREE']),
+    (3.01, None, ['RAWHIGH']),
+])
+def test_detailed_nse_value_in_rupees_normalized_before_filtering(minimum, maximum, expected):
+    result = filter_csv(PreopenRequest(csv_text=RAW_NSE_CSV,
+        settings={'min_turnover':minimum, 'max_turnover':maximum}))
+    assert result['symbols'] == expected
+    assert result['turnover_source_column'] == 'VALUE'
+    assert result['turnover_source_unit'] == 'rupees'
+    assert all(minimum <= row['turnover_crore'] <= (maximum if maximum is not None else 999) for row in result['rows'])
+
+
+def test_crore_header_takes_precedence_and_is_not_converted_twice():
+    text='SYMBOL,%CHANGE,FINAL PRICE,FINAL VOLUME,VALUE,VALUE (Crores)\nRAWTHREE,1,100,300000,30000000,3\n'
+    result=filter_csv(PreopenRequest(csv_text=text, settings={'min_turnover':3,'max_turnover':3}))
+    assert result['symbols'] == ['RAWTHREE']
+    assert result['rows'][0]['turnover_crore'] == 3
+    assert result['turnover_source_unit'] == 'crore'
+
+
+@pytest.mark.parametrize('header', ['VALUE (INR)', 'VALUE (RS)', 'VALUE (RUPEES)'])
+def test_explicit_rupee_units(header):
+    text=f'SYMBOL,%CHANGE,{header}\nRAWTHREE,1,30000000\n'
+    result=filter_csv(PreopenRequest(csv_text=text,settings={'min_turnover':3,'max_turnover':3}))
+    assert result['symbols'] == ['RAWTHREE']
+    assert result['rows'][0]['turnover_crore'] == 3
+
+
+def test_raw_nse_turnover_preview_apply_and_reload_in_browser(integration):
+    pw = pytest.importorskip('playwright.sync_api')
+    ctx=integration
+    def route(r):
+        from urllib.parse import urlsplit
+        url=urlsplit(r.request.url)
+        if url.hostname != 'scanner.test': return r.abort()
+        result=ctx.http.request(r.request.method,url.path,content=r.request.post_data,
+                               headers={'content-type':'application/json'})
+        r.fulfill(status=result.status_code,body=result.content,content_type=result.headers.get('content-type','text/html'))
+    with pw.sync_playwright() as p:
+        browser=p.chromium.launch(channel='msedge',headless=True)
+        try:
+            page=browser.new_page()
+            errors=[]
+            page.on('pageerror',lambda e:errors.append(str(e)))
+            page.route('**/*',route)
+            page.goto('http://scanner.test/')
+            page.locator('#preopenFile').set_input_files({'name':'NSE-03-Nov-2026.csv','mimeType':'text/csv','buffer':RAW_NSE_CSV.encode()})
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 4 stocks in scanner')
+            page.locator('#preopenMinTurnover').fill('0.25')
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 3 stocks in scanner')
+            pw.expect(page.locator('#preopenStatus')).to_contain_text('converted to crore')
+            pw.expect(page.locator('#preopenStatus')).to_contain_text('minimum 0.25 crore')
+            page.locator('#preopenMinTurnover').fill('3')
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 2 stocks in scanner')
+            pw.expect(page.locator('#preopenStatus')).to_contain_text('minimum 3 crore')
+            assert ctx.store.load().symbols == ['RED','GREEN']
+            page.locator('#preopenApply').click()
+            pw.expect(page.locator('#symbolsText')).to_have_value('RAWHIGH\nRAWTHREE')
+            assert ctx.store.load_preopen_import()['settings']['min_turnover'] == 3
+            page.reload()
+            pw.expect(page.locator('#preopenMinTurnover')).to_have_value('3')
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 2 stocks in scanner')
+            page.locator('#preopenMaxTurnover').fill('3')
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 1 stock in scanner')
+            pw.expect(page.locator('#preopenRows')).to_contain_text('RAWTHREE')
+            page.locator('#preopenFno').check()
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 0 stocks in scanner')
+            page.locator('#preopenMaxTurnover').fill('')
+            pw.expect(page.locator('#preopenApply')).to_have_text('Use 1 stock in scanner')
+            pw.expect(page.locator('#preopenRows')).to_contain_text('HDFCBANK')
+            assert not errors
+            assert not ctx.broker.daily_calls and not ctx.broker.minute_calls
+        finally:
+            browser.close()

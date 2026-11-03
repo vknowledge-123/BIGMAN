@@ -69,6 +69,18 @@ def filter_csv(payload: PreopenRequest) -> dict:
         turnover_col = next((i for i, col in enumerate(headers) if "VALUE" in col and "CRORE" in col), None)
         if turnover_col is None:
             turnover_col = column(["TURNOVER ₹ CR", "TURNOVER CR", "VALUE (₹ CR)", "TOTAL VALUE (₹ CR)", "TURNOVER", "VALUE", "TOTAL VALUE"])
+        turnover_unit = "crore"
+        # NSE's detailed export uses an unlabelled VALUE column in rupees.
+        # Its other export explicitly labels VALUE in crore. Never infer units
+        # from the size of a row's value: low-turnover stocks would be misread.
+        if turnover_col is not None and headers[turnover_col] in {"VALUE", "TOTAL VALUE", "TURNOVER"}:
+            if column(["FINAL VOLUME"]) is not None and column(["FINAL PRICE"]) is not None:
+                turnover_unit = "rupees"
+        if turnover_col is None:
+            turnover_col = column(["VALUE (₹)", "VALUE (RS)", "VALUE (INR)", "VALUE (RUPEES)",
+                                   "TURNOVER (₹)", "TURNOVER (RS)", "TURNOVER (INR)"])
+            if turnover_col is not None:
+                turnover_unit = "rupees"
         if symbol_col is None or change_col is None or turnover_col is None:
             raise ValueError("CSV needs Symbol, percentage change (%CHANGE) and turnover/value in crore columns")
         price_cols = [i for name in ["FINAL PRICE", "IEP", "INDICATIVE EQUILIBRIUM PRICE", "INDICATIVE EQUILIBRIUM PRICE (₹)", "PRICE", "LTP"]
@@ -86,6 +98,8 @@ def filter_csv(payload: PreopenRequest) -> dict:
                 continue
             symbol = re.sub(r"\s+", "", re.sub(r"^NSE\s*:\s*", "", row[symbol_col].strip().upper()))
             change, turnover = numeric(row[change_col]), numeric(row[turnover_col])
+            if turnover is not None and turnover_unit == "rupees":
+                turnover /= 10_000_000
             if (not re.fullmatch(r"[A-Z0-9][A-Z0-9&.\-]*", symbol) or symbol in {"TOTAL", "NAN", "NONE"}
                     or change is None or turnover is None or turnover < 0):
                 invalid += 1
@@ -114,6 +128,7 @@ def filter_csv(payload: PreopenRequest) -> dict:
     if settings.top_n is not None:
         selected = selected[:settings.top_n]
     return {"filename": payload.filename, "settings": settings.model_dump(), "total_rows": total,
+            "turnover_source_column": headers[turnover_col], "turnover_source_unit": turnover_unit,
             "valid_rows": len(rows), "invalid_rows": invalid, "duplicate_rows": duplicates,
             "numeric_matches": len(numeric_matches), "matched_count": matched,
             "selected_count": len(selected), "fno_list_count": len(FNO_SYMBOLS), "rows": selected,
