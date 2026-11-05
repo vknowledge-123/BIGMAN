@@ -220,6 +220,21 @@ OIL</textarea>
           </label>
         </div>
         <p id="possibleOpenPreCloseHelp" class="muted-small">Default OFF, limit 1%. When ON, |first-candle open − previous trading-day close| / previous close × 100 must not exceed the limit. Both upward and downward gaps are checked; equality passes. Example: previous close ₹200 and limit 1% allows open ₹198 through ₹202. Applies only to Possible Candidates in Live, scanner backtests and algo backtest qualification. Redwala and Retest Break are unaffected. Uses cached previous close; missing data stays unresolved. Save &amp; Apply, then rerun backtests.</p>
+        <label class="open-cross-toggle">
+          <input id="resistanceFilter" type="checkbox" role="switch" aria-describedby="resistanceHelp" />
+          Daily resistance filter · Possible Candidates only
+        </label>
+        <div class="filter-fields">
+          <label>Search lookback (trading days)<input id="resistanceLookback" type="number" min="5" max="252" step="1" value="60" required /></label>
+          <label>Swing candles before peak<input id="resistanceLeft" type="number" min="1" max="10" step="1" value="2" required /></label>
+          <label>Swing candles after peak<input id="resistanceRight" type="number" min="1" max="10" step="1" value="2" required /></label>
+          <label>Minimum resistance age (trading days)<input id="resistanceMinAge" type="number" min="1" max="252" step="1" value="4" required /></label>
+          <label>Maximum resistance age (trading days)<input id="resistanceMaxAge" type="number" min="1" max="252" step="1" value="60" required /></label>
+          <label>Breakout buffer (%)<input id="resistanceBuffer" type="number" min="0" max="100" step="any" value="0" required /></label>
+        </div>
+        <label class="open-cross-toggle"><input id="resistancePullback" type="checkbox" role="switch" />Require a minimum pullback after the peak</label>
+        <div class="filter-fields"><label>Minimum pullback (%)<input id="resistancePullbackMin" type="number" min="0" max="100" step="any" value="3" required /></label></div>
+        <p id="resistanceHelp" class="muted-small">Default OFF. Finds confirmed daily swing highs from completed sessions before today; selects the nearest unbroken level at or above yesterday's close. A later daily close above a peak retires it. Yesterday has age 1. Short listing histories are allowed when a confirmed peak exists; no eligible peak excludes the stock, while missing data remains pending. When ON, existing Possible Candidate conditions must pass and live LTP must exceed resistance × (1 + buffer / 100); a stock can qualify later in the session. Backtests require a completed green candle close above that threshold. The resistance_break_open badge requires the first or second candle to open strictly below resistance and cross above the threshold during that candle; replay uses its close. Redwala and Retest Break are unaffected. Cache Volume + Day Levels before opening; Save &amp; Apply and rerun backtests after changing settings.</p>
         <div id="activeVolumeFilters" class="muted-small" role="status">Loading saved filters…</div>
         <p id="filterChangesStatus" class="muted-small" role="status" aria-live="polite">Run Backtest saves your selected filters before starting. Save &amp; Apply updates Live too.</p>
       </form>
@@ -282,7 +297,7 @@ OIL</textarea>
       <section id="liveView" class="view-pane">
         <div id="scanSummary" class="message">Prepare stocks before market open, then start Live before 9:15.</div>
         <p id="liveTurnoverSummary" class="muted-small">First-candle turnover = volume × close. Loading saved threshold…</p>
-        <p id="morningSortHelp" class="muted-small">Live results show Possible Candidates and Redwala with high/low breakout badges first, sorted by first-candle turnover from highest to lowest. Other matches follow.</p>
+        <p id="morningSortHelp" class="muted-small">First: Possible Candidate + Resistance Break + Resistance Break Open + First Candle High Break (all four required). Second: Redwala Gira + First Candle Low Break + First Candle PDL Cross (all three required; PDL Cross on 2nd Candle is optional). Remaining stocks follow. Every group is sorted by first-candle turnover, highest first; equal turnovers retain their existing order. Open = Low is not required for priority.</p>
         <p id="dashboardVolumeSummary" class="muted-small" role="status"></p>
         <div id="scanIssues" class="scan-issues" role="status" hidden></div>
         <div id="openingLiveResults" class="table-wrap">

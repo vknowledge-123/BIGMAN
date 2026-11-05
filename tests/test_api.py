@@ -93,7 +93,11 @@ def test_volume_settings_endpoint_persists_and_returns_current_settings():
                 "redwala_open_previous_close": True, "redwala_open_gap_max": 1.25,
                 "redwala_open_tolerance": True, "redwala_open_tolerance_max": .75,
                 "possible_open_pre_close": True, "possible_open_pre_close_max": 1.5,
-                "pdhl_filter": True, "pdhl_max": 4.5}
+                "pdhl_filter": True, "pdhl_max": 4.5,
+                "resistance_filter": True, "resistance_lookback": 80,
+                "resistance_left": 3, "resistance_right": 2,
+                "resistance_min_age": 5, "resistance_max_age": 70,
+                "resistance_buffer": .25, "resistance_pullback": True, "resistance_pullback_min": 2.5}
     with TestClient(app) as client:
         assert client.post("/api/volume-filters", json=settings).status_code == 200
         assert client.get("/api/config").json()["volume_filters"] == settings

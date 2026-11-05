@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class VolumeFilterSettings(BaseModel):
@@ -22,6 +22,23 @@ class VolumeFilterSettings(BaseModel):
     pdhl_max: float = Field(default=4.0, ge=0, allow_inf_nan=False)
     possible_open_pre_close: bool = False
     possible_open_pre_close_max: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    resistance_filter: bool = False
+    resistance_lookback: int = Field(default=60, ge=5, le=252)
+    resistance_left: int = Field(default=2, ge=1, le=10)
+    resistance_right: int = Field(default=2, ge=1, le=10)
+    resistance_min_age: int = Field(default=4, ge=1, le=252)
+    resistance_max_age: int = Field(default=60, ge=1, le=252)
+    resistance_buffer: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    resistance_pullback: bool = False
+    resistance_pullback_min: float = Field(default=3, ge=0, le=100, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def resistance_ranges(self):
+        if not self.resistance_min_age <= self.resistance_max_age <= self.resistance_lookback:
+            raise ValueError("Resistance ages must satisfy minimum <= maximum <= lookback")
+        if self.resistance_right >= self.resistance_max_age:
+            raise ValueError("Resistance maximum age must exceed the following-candle confirmation count")
+        return self
 
 
 class CredentialsIn(BaseModel):
@@ -76,6 +93,16 @@ class DailyVolumeFilter(BaseModel):
 
 
 class QualificationFields(BaseModel):
+    resistance_level: float | None = None
+    resistance_threshold: float | None = None
+    resistance_date: str | None = None
+    resistance_age: int | None = None
+    resistance_pullback_percent: float | None = None
+    resistance_status: str = "off"
+    resistance_break: bool = False
+    resistance_break_open: bool = False
+    resistance_break_open_candle: int | None = None
+    resistance_break_at: str | None = None
     first_candle_high_break: bool = False
     first_candle_low_break: bool = False
     previous_day_low_break: bool = False

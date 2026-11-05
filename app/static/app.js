@@ -16,6 +16,15 @@ const els = {
   pdhlMax: qs("#pdhlMax"),
   possibleOpenPreClose: qs("#possibleOpenPreClose"),
   possibleOpenPreCloseMax: qs("#possibleOpenPreCloseMax"),
+  resistanceFilter: qs("#resistanceFilter"),
+  resistanceLookback: qs("#resistanceLookback"),
+  resistanceLeft: qs("#resistanceLeft"),
+  resistanceRight: qs("#resistanceRight"),
+  resistanceMinAge: qs("#resistanceMinAge"),
+  resistanceMaxAge: qs("#resistanceMaxAge"),
+  resistanceBuffer: qs("#resistanceBuffer"),
+  resistancePullback: qs("#resistancePullback"),
+  resistancePullbackMin: qs("#resistancePullbackMin"),
   setupFilter: qs("#setupFilter"),
   dashboardVolumeEnabled: qs("#dashboardVolumeEnabled"),
   dashboardVolumeMin: qs("#dashboardVolumeMin"),
@@ -73,7 +82,7 @@ function fmtNumber(value, digits = 2) {
 }
 
 function filterDescription(settings = {}) {
-  return `Day ≤ ${settings.daily_volume_max ?? 4}× (or price change ≤ +1%); first minute ≥ ${settings.minute_volume_min ?? 4}×; ${turnoverDescription(settings)}; Today Open Cross ${settings.today_open_cross ? "ON (Candidates and Retest Break: open > highest close of prior 5 sessions)" : "OFF"}; ${additionalOpeningDescription(settings)}`;
+  return `Day ≤ ${settings.daily_volume_max ?? 4}× (or price change ≤ +1%); first minute ≥ ${settings.minute_volume_min ?? 4}×; ${turnoverDescription(settings)}; Today Open Cross ${settings.today_open_cross ? "ON (Candidates and Retest Break: open > highest close of prior 5 sessions)" : "OFF"}; ${additionalOpeningDescription(settings)}; ${resistanceDescription(settings)}`;
 }
 
 function additionalOpeningDescription(settings = {}) {
@@ -81,6 +90,12 @@ function additionalOpeningDescription(settings = {}) {
     ? `opening tolerance ON (open at/above previous close or up to ${settings.redwala_open_tolerance_max ?? 0.5}% below); first close < previous close`
     : "opening tolerance OFF; first open > previous close > first close";
   return `Monthly Filter ${settings.monthly_filter ? "ON (open > highest close of prior 20 trading sessions)" : "OFF"}; Last 2 Days Filter ${settings.last_two_days_filter ? "ON (both green: no extra condition; red/doji: open > both prior closes)" : "OFF"}; PDHL ${settings.pdhl_filter ? `ON (Possible Candidates only: (previous high - low) / low ≤ ${settings.pdhl_max ?? 4}%)` : "OFF"}; Possible Candidates Open / Previous Close ${settings.possible_open_pre_close ? `ON (absolute opening difference ≤ ${settings.possible_open_pre_close_max ?? 1}%)` : "OFF"}; Redwala: turnover plus a red first candle with open = high; volume filters do not apply; Redwala Open or Close / Previous Close ${settings.redwala_open_previous_close ? `ON (open or close absolute distance ≤ ${settings.redwala_open_gap_max ?? 1}%; ${redwalaOpeningRule})` : "OFF"}`;
+}
+
+function resistanceDescription(s = {}) {
+  return s.resistance_filter
+    ? `Daily Resistance ON (Possible Candidates only; ${s.resistance_lookback ?? 60} sessions; swing ${s.resistance_left ?? 2} before / ${s.resistance_right ?? 2} after; age ${s.resistance_min_age ?? 4}-${s.resistance_max_age ?? 60}; buffer ${s.resistance_buffer ?? 0}%; pullback ${s.resistance_pullback ? `>= ${s.resistance_pullback_min ?? 3}%` : 'OFF'}; live LTP / replay green close)`
+    : 'Daily Resistance OFF';
 }
 
 function turnoverDescription(settings = {}) {
@@ -199,6 +214,9 @@ function fmtSignalBadge(row, reason) {
   const badges = [];
   if (row.awaiting_confirmation) return badges.join('') + `<span class="candidate-badge pending-badge" title="${reason}">${escapeHtml(row.provisional_setup || "Live match")} - Awaiting confirmation</span>`;
   if (row.possible_candidate) badges.push(`<span class="candidate-badge" title="${reason}">Possible candidate</span>`);
+  const resistanceDetail = escapeHtml(`Daily swing high ${fmtNumber(row.resistance_level, 2)} on ${row.resistance_date || '--'}; ${row.resistance_age ?? '--'} trading days old; breakout above ${fmtNumber(row.resistance_threshold, 2)}. Live uses current LTP; backtests use a completed green candle close.`);
+  if (row.possible_candidate && row.resistance_break) badges.push(`<span class="candidate-badge" title="${resistanceDetail}">resistance break</span>`);
+  if (row.possible_candidate && row.resistance_break_open) badges.push(`<span class="candidate-badge" title="${resistanceDetail} Candle ${row.resistance_break_open_candle}: open below resistance, crossed above within that candle; replay requires close above.">resistance_break_open · candle ${row.resistance_break_open_candle}</span>`);
   if (row.possible_candidate && row.first_candle_high_break) badges.push(`<span class="candidate-badge" title="A later trade exceeded the first candle's high; this badge remains after the break">First Candle High Break</span>`);
   if (row.retest_break) badges.push(`<span class="candidate-badge retest-badge" title="${escapeHtml(row.retest_reason || '')}">Retest Break${row.retest_break_at ? ` · ${fmtTime(row.retest_break_at).slice(0, 5)}` : ''}</span>`);
   if (row.possible_candidate && row.first_open_equals_low) badges.push(`<span class="candidate-badge" title="First candle open equals its low">open ==low</span>`);
@@ -360,18 +378,17 @@ function matchesSetup(row) {
   return true;
 }
 
-// Preserve existing breakout-badge priority; ties keep the scanner order.
-function hasBreakoutBadge(row) {
-  if (row.awaiting_confirmation) return false;
-  return Boolean((row.possible_candidate && (row.first_candle_high_break || row.previous_day_high_cross))
-    || (row.redwala_gira && (row.first_candle_low_break || row.previous_day_low_cross
-      || row.previous_day_low_cross_second_candle)));
+// Complete badge combinations first; partial combinations share the turnover group.
+function dashboardPriority(row) {
+  if (row.awaiting_confirmation) return 0;
+  if (row.possible_candidate && row.resistance_break && row.resistance_break_open && row.first_candle_high_break) return 2;
+  if (row.redwala_gira && row.first_candle_low_break && row.previous_day_low_cross) return 1;
+  return 0;
 }
 
 function compareLiveStocks(a, b) {
-  const priority = Number(hasBreakoutBadge(b)) - Number(hasBreakoutBadge(a));
+  const priority = dashboardPriority(b) - dashboardPriority(a);
   if (priority) return priority;
-  if (!hasBreakoutBadge(a) && !dashboardVolumeFilter.enabled && !dashboardPriceFilter.enabled) return 0;
   const turnover = row => Number.isFinite(row.first_candle_turnover) && row.first_candle_turnover >= 0
     ? row.first_candle_turnover : -1;
   return turnover(b) - turnover(a);
@@ -587,7 +604,9 @@ async function runBacktest() {
   const controls = [els.dailyVolumeMax, els.minuteVolumeMin, els.firstCandleTurnoverMin,
     els.todayOpenCross, els.monthlyFilter, els.lastTwoDaysFilter, els.possibleOpenPreClose,
     els.possibleOpenPreCloseMax, els.redwalaOpenPreviousClose, els.redwalaOpenGapMax,
-    els.redwalaOpenTolerance, els.redwalaOpenToleranceMax, els.pdhlFilter, els.pdhlMax];
+    els.redwalaOpenTolerance, els.redwalaOpenToleranceMax, els.pdhlFilter, els.pdhlMax,
+    els.resistanceFilter, els.resistanceLookback, els.resistanceLeft, els.resistanceRight,
+    els.resistanceMinAge, els.resistanceMaxAge, els.resistanceBuffer, els.resistancePullback, els.resistancePullbackMin];
   try {
     const settings = readFilterSettings();
     controls.forEach(control => { control.disabled = true; });
@@ -655,6 +674,11 @@ async function refreshConfig() {
       lastTwoDaysFilter: s.last_two_days_filter, redwalaOpenPreviousClose: s.redwala_open_previous_close,
       redwalaOpenTolerance: s.redwala_open_tolerance, redwalaOpenToleranceMax: s.redwala_open_tolerance_max,
       possibleOpenPreClose: s.possible_open_pre_close, possibleOpenPreCloseMax: s.possible_open_pre_close_max,
+      resistanceFilter: s.resistance_filter, resistanceLookback: s.resistance_lookback,
+      resistanceLeft: s.resistance_left, resistanceRight: s.resistance_right,
+      resistanceMinAge: s.resistance_min_age, resistanceMaxAge: s.resistance_max_age,
+      resistanceBuffer: s.resistance_buffer, resistancePullback: s.resistance_pullback,
+      resistancePullbackMin: s.resistance_pullback_min,
       redwalaOpenGapMax: s.redwala_open_gap_max, pdhlFilter: s.pdhl_filter, pdhlMax: s.pdhl_max})) {
       if (!editedFilterFields.has(id) && !editedFilterFields.has('*')) {
         els[id][typeof value === 'boolean' ? 'checked' : 'value'] = value;
@@ -679,6 +703,9 @@ function normalizedFilterSettings(settings = {}) {
     redwala_open_previous_close: false, redwala_open_gap_max: 1, pdhl_filter: false, pdhl_max: 4,
     redwala_open_tolerance: false, redwala_open_tolerance_max: 0.5,
     possible_open_pre_close: false, possible_open_pre_close_max: 1,
+    resistance_filter: false, resistance_lookback: 60, resistance_left: 2, resistance_right: 2,
+    resistance_min_age: 4, resistance_max_age: 60, resistance_buffer: 0,
+    resistance_pullback: false, resistance_pullback_min: 3,
     ...settings};
 }
 
@@ -700,6 +727,26 @@ function readFilterSettings() {
   settings.redwala_open_tolerance = Boolean(els.redwalaOpenTolerance.checked);
   settings.pdhl_filter = Boolean(els.pdhlFilter.checked);
   settings.possible_open_pre_close = Boolean(els.possibleOpenPreClose.checked);
+  settings.resistance_filter = Boolean(els.resistanceFilter.checked);
+  settings.resistance_pullback = Boolean(els.resistancePullback.checked);
+  for (const [key, control, minimum, maximum, whole] of [
+    ['resistance_lookback', els.resistanceLookback, 5, 252, true],
+    ['resistance_left', els.resistanceLeft, 1, 10, true],
+    ['resistance_right', els.resistanceRight, 1, 10, true],
+    ['resistance_min_age', els.resistanceMinAge, 1, 252, true],
+    ['resistance_max_age', els.resistanceMaxAge, 1, 252, true],
+    ['resistance_buffer', els.resistanceBuffer, 0, 100, false],
+    ['resistance_pullback_min', els.resistancePullbackMin, 0, 100, false]]) {
+    const value = Number(control.value);
+    if (!String(control.value).trim() || !Number.isFinite(value) || value < minimum || value > maximum || (whole && !Number.isInteger(value))) {
+      throw new Error(`Daily resistance: ${key.replaceAll('_', ' ')} must be ${whole ? 'a whole number' : 'a number'} from ${minimum} to ${maximum}.`);
+    }
+    settings[key] = value;
+  }
+  if (settings.resistance_min_age > settings.resistance_max_age || settings.resistance_max_age > settings.resistance_lookback
+      || settings.resistance_right >= settings.resistance_max_age) {
+    throw new Error('Daily resistance: minimum age <= maximum age <= lookback; maximum age must exceed following-candle count.');
+  }
   for (const [key, control] of [["redwala_open_gap_max", els.redwalaOpenGapMax], ["redwala_open_tolerance_max", els.redwalaOpenToleranceMax], ["pdhl_max", els.pdhlMax], ["possible_open_pre_close_max", els.possibleOpenPreCloseMax]]) {
     const value = Number(control.value);
     if (String(control.value).trim() === "" || !Number.isFinite(value) || value < 0) {

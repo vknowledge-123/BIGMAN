@@ -14,7 +14,8 @@ def _daily_price(values: list, index: int) -> float | None:
         return None
 
 
-def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 4.0) -> dict:
+def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 4.0,
+                           resistance_capacity: int = 0) -> dict:
     """Use completed sessions strictly before the scan date; cache opening-filter inputs."""
     timestamps = data.get("timestamp") or []
     closes = data.get("close") or []
@@ -65,6 +66,9 @@ def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 
     normal_volume = Decimal(previous["volume"] * 3) <= Decimal(volume_sum) * Decimal(str(volume_limit))
     price_exception = not normal_volume and percent_change <= Decimal("1")
     return {
+        **({"resistance_capacity": resistance_capacity,
+            "resistance_history": [sessions[day] for day in sorted(sessions)[-resistance_capacity:]]}
+           if resistance_capacity else {}),
         "twenty_day_closes": [{"date": sessions[day]["date"], "close": sessions[day]["close"]}
                               for day in sorted(sessions)[-20:]],
         "last_two_day_candles": [{key: sessions[day][key] for key in ("date", "open", "close")}

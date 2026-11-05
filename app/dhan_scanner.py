@@ -21,6 +21,7 @@ from .schemas import VolumeFilterSettings
 from .opening_filters import evaluate as evaluate_opening_filters, missing_history as missing_opening_history
 from .opening_patterns import first_high_broken, retest_sequence
 from .setup_price_filters import evaluate as evaluate_price_filters, missing_history as missing_price_history
+from . import resistance
 from .storage import DATA_DIR, ConfigStore
 
 try:
@@ -178,6 +179,8 @@ class StockState:
     volume_multiplier: float | None = None
     opening_colors_match: bool = False
     possible_candidate: bool = False
+    resistance_context: dict = field(default_factory=dict)
+    ltp_updated_at: datetime | None = None
     redwala_gira: bool = False
     qualifies_scan: bool = False
     daily_filter: dict[str, Any] | None = None
@@ -377,6 +380,7 @@ class ScannerEngine:
                     if not daily["passes"]:
                         state.confirmation_status = "pending"
                         state.signal_session = session
+                self._mark_resistance_pending(state, session)
                 self._states[symbol] = state
             self._security_symbols = {state.instrument.security_id: symbol for symbol, state in self._states.items()}
             self._unresolved_symbols = unresolved
@@ -414,6 +418,7 @@ class ScannerEngine:
                     first = state.confirmed_opening_candle
                     if first and first.start.date() == session:
                         self._apply_opening_candidate(state.instrument.symbol, [first])
+                    self._mark_resistance_pending(state, session)
                 # Cached raw inputs remain valid. Derived decisions are recalculated
                 # on load; do not rewrite the entire cache while holding the feed lock.
                 was_running = self._running
@@ -579,6 +584,9 @@ class ScannerEngine:
         need_opening_history = need_five or bool(first and first.start.date() == session and first.color == "green")
         if need_opening_history and missing_opening_history(state.daily_filter, session, self.volume_filters):
             fetched = True
+        need_resistance = self.volume_filters.resistance_filter and price_setup in (None, "possible")
+        if need_resistance and resistance.missing_history(state.daily_filter, session, self.volume_filters):
+            fetched = True
         if need_five and self._five_day_close_level(state.daily_filter, session) is None:
             fetched = True
         # Five-close history is an additional requirement only for green setups.
@@ -619,11 +627,29 @@ class ScannerEngine:
         if need_opening_history and state.daily_filter["passes"] and missing:
             state.preparation_status = "unresolved"
             raise RuntimeError(missing)
+        missing = resistance.missing_history(state.daily_filter, session, self.volume_filters) if need_resistance else None
+        if missing and state.daily_filter["passes"]:
+            state.preparation_status = "unresolved"
+            raise RuntimeError(missing)
+        if need_resistance:
+            resistance.selection(state.daily_filter, session, self.volume_filters)
+
+    def _mark_resistance_pending(self, state: StockState, session: date) -> None:
+        first = state.confirmed_opening_candle
+        if first and first.start.date() == session and first.color != "green":
+            return
+        missing = resistance.missing_history(state.daily_filter, session, self.volume_filters)
+        if missing and state.daily_filter and state.daily_filter.get("passes"):
+            state.preparation_status = "unresolved"
+            state.error = missing
+        elif not missing and state.error and state.error.startswith("Daily resistance data pending"):
+            state.error = None
 
     def _prepare_volume(self, client: Any, state: StockState, session: date,
                         stop_event: threading.Event | None = None) -> None:
         if self._volume_ready(state, session):
             state.preparation_status = "ready"
+            self._mark_resistance_pending(state, session)
             return
         samples, today_candles = self._fetch_opening_volume_history(client, state.instrument)
         with self._lock:
@@ -638,6 +664,7 @@ class ScannerEngine:
             state.status = "volume cached"
             if self._first_opening_candle(today_candles) is not None:
                 self._apply_opening_candidate(state.instrument.symbol, today_candles)
+            self._mark_resistance_pending(state, session)
 
     def cache_opening_volume_averages(self) -> dict[str, float]:
         with self._preparation_lock:
@@ -798,19 +825,24 @@ class ScannerEngine:
         return any(abs(gap_percent - band) <= 0.35 for band in CIRCUIT_BANDS)
 
     def _fetch_daily_filter(self, client: Any, instrument: Instrument, target_date: date) -> dict:
+        settings = self.volume_filters
+        start_date = target_date - timedelta(days=resistance.history_days(settings))
         response = self._historical_daily_with_retry(
             client,
             instrument.security_id,
             instrument.exchange_segment,
             instrument.instrument_type,
-            (target_date - timedelta(days=90)).isoformat(),
+            start_date.isoformat(),
             target_date.isoformat(),
         )
         try:
-            return calculate_daily_filter(_extract_data(response), target_date, self.volume_filters.daily_volume_max)
+            capacity = settings.resistance_lookback + settings.resistance_left if settings.resistance_filter else 0
+            daily = calculate_daily_filter(_extract_data(response), target_date, settings.daily_volume_max, capacity)
+            resistance.selection(daily, target_date, settings)  # Warm derived cache before opening.
+            return daily
         except (RuntimeError, ValueError) as exc:
             raise RuntimeError(f"Daily history for {instrument.symbol} (security ID {instrument.security_id}, "
-                               f"{target_date - timedelta(days=90)} to {target_date}, end exclusive): {exc}") from exc
+                               f"{start_date} to {target_date}, end exclusive): {exc}") from exc
 
     def _qualify_signal(self, signal: OpeningSignal, daily_filter: dict | None, session: date) -> dict:
         daily_filter = apply_daily_volume_limit(daily_filter, self.volume_filters.daily_volume_max)
@@ -828,6 +860,12 @@ class ScannerEngine:
         price_checks = evaluate_price_filters(daily_filter, session, signal.first.open, signal.first.close,
                                              self.volume_filters, "possible" if signal.first.color == "green" else "redwala" if first_red and open_high else "none")
         possible = bool(volume_pass and turnover_pass and daily_pass and open_cross_pass and opening_checks["passes"] and signal.first.color == "green" and price_checks["passes"])
+        possible_base = possible
+        selected = resistance.selection(daily_filter, session, self.volume_filters) if signal.first.color == "green" else {"resistance_status": "off"}
+        resistance_missing = (resistance.missing_history(daily_filter, session, self.volume_filters)
+                              if signal.first.color == "green" else None)
+        if self.volume_filters.resistance_filter:
+            possible = possible and resistance.above(signal.first.close, selected)
         redwala = bool(turnover_pass and first_red and open_high and price_checks["passes"])
         reason = (f"{signal.reason}; first candle turnover {signal.first.turnover:,.2f} INR "
                   f"> {turnover_min:,.2f} INR ({'pass' if turnover_pass else 'fail'})")
@@ -856,8 +894,13 @@ class ScannerEngine:
                           "daily and minute volume filters do not apply")
         if price_checks["reason"]:
             reason += "; " + price_checks["reason"]
+        if signal.first.color == "green" and self.volume_filters.resistance_filter:
+            reason += "; " + (resistance_missing or "No eligible daily resistance" if selected["resistance_status"] != "ready" else
+                f"Daily resistance {selected['resistance_level']:g}, {selected['resistance_age']} trading days old; price must exceed {selected['resistance_threshold']:g}")
         return {
-            "price_filter_unresolved": price_checks["reason"] if not price_checks["resolved"] else None,
+            **selected,
+            "possible_base_eligible": possible_base,
+            "price_filter_unresolved": price_checks["reason"] if not price_checks["resolved"] else resistance_missing,
             "possible_candidate": possible,
             "redwala_gira": redwala,
             "retest_base_eligible": bool(volume_pass and turnover_pass and daily_pass and first_red),
@@ -1048,6 +1091,14 @@ class ScannerEngine:
         qualification = self._qualify_signal(signal, daily_filter, target_date)
         now = datetime.now(IST)
         completed = [bar for bar in target_candles if target_date < now.date() or bar.end <= now]
+        resistance_badges = resistance.replay_badges(completed, signal.first, qualification)
+        if self.volume_filters.resistance_filter and signal.first.color == "green":
+            qualification["possible_candidate"] = qualification["possible_base_eligible"] and resistance_badges["resistance_break"]
+            qualification["qualifies_scan"] = qualification["possible_candidate"] or qualification["redwala_gira"]
+            qualification.update(self._previous_day_crosses(signal.first, daily_filter, target_date,
+                                qualification["possible_candidate"], qualification["redwala_gira"]))
+        if not qualification["possible_candidate"]:
+            resistance_badges = {}
         pattern = self._retest_result(signal.first, completed, daily_filter, qualification)
         if qualification["price_filter_unresolved"] and not pattern["retest_break"]:
             raise RuntimeError(qualification["price_filter_unresolved"])
@@ -1074,6 +1125,7 @@ class ScannerEngine:
             "volume_multiplier": signal.volume_multiplier,
             "opening_colors_match": signal.colors_match,
             **qualification,
+            **resistance_badges,
             "daily_filter": daily_filter,
             "first_candle_open": signal.first.open,
             "first_candle_close": signal.first.close,
@@ -1291,6 +1343,8 @@ class ScannerEngine:
                             # Do not replace a WebSocket tick received while the quote was in flight.
                             if price is not None and price > 0 and (state.last_tick_received_at is None or state.last_tick_received_at < requested_at):
                                 state.ltp = price
+                                state.ltp_updated_at = fetched_at
+                                self._update_live_resistance(state)
                                 if state.previous_close:
                                     state.percent_change = (price - state.previous_close) / state.previous_close * 100
             except Exception as exc:
@@ -1343,6 +1397,7 @@ class ScannerEngine:
             target.redwala_gira = qualification["redwala_gira"]
             target.qualifies_scan = qualification["qualifies_scan"]
             target.candidate_reason = qualification["candidate_reason"]
+            target.resistance_context = qualification
             target.confirmation_status = "confirmed"
             missing = (missing_opening_history(target.daily_filter, signal.first.start.date(), self.volume_filters)
                        if signal.first.color == "green" else None)
@@ -1355,7 +1410,40 @@ class ScannerEngine:
             target.provisional_setup = None
             target.error = (missing + "; cache day levels or run Live to fetch them" if missing else None)
             self._update_retest(target)
+            self._update_live_resistance(target)
             return target.possible_candidate
+
+    def _update_live_resistance(self, state: StockState) -> None:
+        """Only local comparisons on ticks; historical selection happens at confirmation."""
+        first, context = state.confirmed_opening_candle, state.resistance_context
+        if not self.volume_filters.resistance_filter or not first or not context or first.color != "green":
+            return
+        if state.signal_session != first.start.date() or first.start.date() != datetime.now(IST).date():
+            return
+        asof = state.ltp_updated_at or state.last_tick_time
+        fresh_session = asof and asof.date() == first.start.date() and asof >= first.end
+        price = state.ltp if fresh_session else first.close
+        state.possible_candidate = bool(state.confirmation_status == "confirmed" and context.get("possible_base_eligible")
+                                        and resistance.above(price, context))
+        state.qualifies_scan = state.possible_candidate or state.redwala_gira or state.retest_break
+
+    def _live_resistance_fields(self, state: StockState) -> dict:
+        context = state.resistance_context
+        if not self.volume_filters.resistance_filter or not context or not state.confirmed_opening_candle:
+            return {}
+        result = {key: value for key, value in context.items() if key.startswith("resistance_")}
+        first = state.confirmed_opening_candle
+        if not state.possible_candidate:
+            return result
+        bars = {bar.start: bar for bar in state.opening_candles if bar.start.date() == first.start.date()}
+        if state.current_candle and state.current_candle.start not in state.confirmed_session_candles:
+            bars[state.current_candle.start] = state.current_candle
+        bars.update(state.confirmed_session_candles)
+        crosses = [index for index in (1, 2) if (bar := bars.get(first.start + timedelta(minutes=index-1)))
+                   and context.get("resistance_level") is not None and bar.open < context["resistance_level"]
+                   and resistance.above(bar.high, context)]
+        return {**result, "resistance_break": True, "resistance_break_open": bool(crosses),
+                "resistance_break_open_candle": crosses[0] if crosses else None}
 
     def _retest_result(self, first: Candle, candles: list[Candle], daily: dict | None, qualification: dict) -> dict:
         if not qualification["retest_base_eligible"]:
@@ -1639,6 +1727,9 @@ class ScannerEngine:
                     continue
                 target.previous_close = close
                 target.ltp = ltp if ltp is not None else target.ltp
+                if ltp is not None:
+                    target.ltp_updated_at = datetime.now(IST)
+                    self._update_live_resistance(target)
                 if target.ltp is not None and close:
                     target.percent_change = ((target.ltp - close) / close) * 100
                 target.error = None
@@ -2009,7 +2100,9 @@ class ScannerEngine:
             state.ltp = ltp
             state.day_volume = cumulative_volume if cumulative_volume is not None else state.day_volume
             state.last_tick_time = tick_time
+            state.ltp_updated_at = tick_time
             state.last_tick_received_at = datetime.now(IST)
+            self._update_live_resistance(state)
             if state.confirmation_status not in {"awaiting_confirmation", "unresolved", "local_rejected", "daily_rejected"}:
                 state.status = "live"
             received_at = datetime.now(IST)
@@ -2130,11 +2223,13 @@ class ScannerEngine:
         return result
 
     def _row(self, state: StockState) -> dict[str, Any]:
+        self._update_live_resistance(state)
         candle = state.completed_candle
         opening_candles = self._opening_window_candles(state.opening_candles)
         first_opening = self._first_opening_candle(opening_candles)
         second_opening = next((item for item in opening_candles if first_opening and item.start == first_opening.end), None)
         return {
+            **self._live_resistance_fields(state),
             **self._redwala_breaks(state.confirmed_opening_candle,
                 list(state.confirmed_session_candles.values()), state.daily_filter, state.redwala_gira,
                 state.post_opening_trough if state.confirmed_opening_candle

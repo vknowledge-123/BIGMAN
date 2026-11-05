@@ -28,6 +28,10 @@ function dashboard(storage) {
   elements.get('#redwalaOpenToleranceMax').value = '0.5';
   elements.get('#pdhlMax').value = '4';
   elements.get('#possibleOpenPreCloseMax').value = '1';
+  for (const [id, value] of Object.entries({resistanceLookback:60, resistanceLeft:2, resistanceRight:2,
+    resistanceMinAge:4, resistanceMaxAge:60, resistanceBuffer:0, resistancePullbackMin:3})) {
+    elements.get('#' + id).value = String(value);
+  }
   return { context, elements };
 }
 
@@ -49,6 +53,37 @@ function fixtures() {
     { ...base, symbol: 'APIERROR', qualifies_scan: false, error: 'Daily history missing' },
   ];
 }
+
+test('daily resistance settings validate, describe and submit all controls', () => {
+  const {context, elements} = dashboard();
+  elements.get('#resistanceFilter').checked = true;
+  elements.get('#resistanceBuffer').value = '0.25';
+  elements.get('#resistancePullback').checked = true;
+  const s = vm.runInContext('readFilterSettings()', context);
+  assert.equal(s.resistance_lookback,60);
+  assert.equal(s.resistance_buffer,.25);
+  assert.equal(s.resistance_filter,true);
+  assert.equal(s.resistance_pullback,true);
+  context.s=s;
+  assert.match(vm.runInContext('filterDescription(s)', context), /Daily Resistance ON.*60 sessions.*age 4-60.*buffer 0.25%.*pullback >= 3%/);
+  elements.get('#resistanceMinAge').value = '61';
+  assert.throws(()=>vm.runInContext('readFilterSettings()',context), /minimum age/);
+  elements.get('#resistanceMinAge').value = '4';
+  elements.get('#resistanceLookback').value = '';
+  assert.throws(()=>vm.runInContext('readFilterSettings()',context), /Daily resistance/);
+});
+
+test('resistance badges remain Possible-only and receive turnover sorting priority', () => {
+  const {context} = dashboard();
+  context.rows = [
+    {symbol:'LOW',possible_candidate:true,resistance_break:true,first_candle_turnover:100},
+    {symbol:'PLAIN',possible_candidate:true,first_candle_turnover:999},
+    {symbol:'HIGH',possible_candidate:true,resistance_break:true,resistance_break_open:true,first_candle_high_break:true,resistance_break_open_candle:2,first_candle_turnover:200},
+  ];
+  assert.equal(vm.runInContext("rows.sort(compareLiveStocks).map(r=>r.symbol).join(',')",context),'HIGH,PLAIN,LOW');
+  assert.match(vm.runInContext("fmtSignalBadge(rows[0],'')",context), /resistance_break_open/);
+  assert.doesNotMatch(vm.runInContext("fmtSignalBadge({...rows[0],possible_candidate:false,redwala_gira:true},'')",context), /resistance_break_open|>resistance break</);
+});
 
 test('API validation errors show the field and reason instead of object Object', async () => {
   const {context} = dashboard();
@@ -131,26 +166,52 @@ test('second-candle PDL badge appears only on Redwala in both views', () => {
 test('live breakout badges sort first, preserve other matches, and update as badges arrive', () => {
   const { context, elements } = dashboard();
   const stocks = [
-    { ...fixtures()[0], symbol: 'PLAIN', first_open_equals_low: true },
-    { ...fixtures()[1], symbol: 'RED_PDL', previous_day_low_cross: true },
-    { ...fixtures()[0], symbol: 'HIGH_BREAK', first_candle_high_break: true },
+    { ...fixtures()[0], symbol: 'PLAIN' },
+    { ...fixtures()[1], symbol: 'RED_PDL', first_candle_low_break:true, previous_day_low_cross: true, previous_day_low_cross_second_candle:true },
+    { ...fixtures()[0], symbol: 'HIGH_BREAK', first_candle_high_break: true, resistance_break:true, resistance_break_open:true },
     { ...fixtures()[1], symbol: 'PLAIN_RED' },
   ];
   context.state = { stocks, status: 'Live', unresolved_symbols: [] };
   const symbols = () => [...elements.get('#stockRows').innerHTML.matchAll(/<strong>(PLAIN|RED_PDL|HIGH_BREAK|PLAIN_RED)<\/strong>/g)].map(match => match[1]);
   vm.runInContext('renderState(state)', context);
-  assert.deepEqual(symbols(), ['RED_PDL', 'HIGH_BREAK', 'PLAIN', 'PLAIN_RED']);
+  assert.deepEqual(symbols(), ['HIGH_BREAK', 'RED_PDL', 'PLAIN', 'PLAIN_RED']);
   assert.deepEqual(stocks.map(row => row.symbol), ['PLAIN', 'RED_PDL', 'HIGH_BREAK', 'PLAIN_RED']);
-  stocks[0].previous_day_high_cross = true;
+  Object.assign(stocks[0], {resistance_break:true,resistance_break_open:true,first_candle_high_break:true});
   vm.runInContext('renderState(state)', context);
-  assert.deepEqual(symbols(), ['PLAIN', 'RED_PDL', 'HIGH_BREAK', 'PLAIN_RED']);
+  assert.deepEqual(symbols(), ['PLAIN', 'HIGH_BREAK', 'RED_PDL', 'PLAIN_RED']);
   elements.get('#setupFilter').value = 'redwala';
   stocks[1].previous_day_low_cross = false;
-  stocks[3].previous_day_low_cross_second_candle = true;
+  Object.assign(stocks[3], {first_candle_low_break:true,previous_day_low_cross:true,previous_day_low_cross_second_candle:true});
   vm.runInContext('renderState(state)', context);
   assert.deepEqual(symbols(), ['PLAIN_RED', 'RED_PDL']);
-  assert.equal(vm.runInContext('hasBreakoutBadge({redwala_gira:true,first_candle_low_break:true})', context), true);
-  assert.equal(vm.runInContext('hasBreakoutBadge({possible_candidate:true,first_candle_high_break:true,awaiting_confirmation:true})', context), false);
+  assert.equal(vm.runInContext('dashboardPriority({redwala_gira:true,first_candle_low_break:true})', context), 0);
+  assert.equal(vm.runInContext('dashboardPriority({...state.stocks[0],awaiting_confirmation:true})', context), 0);
+});
+
+test('complete Possible combination precedes three-or-four-badge Redwala, then remaining rows sort by turnover', () => {
+  const {context, elements} = dashboard();
+  const possible = fixtures()[0], red = fixtures()[1];
+  const stocks = [
+    {...possible, symbol:'PLAIN_GREEN', first_candle_turnover:9000},
+    {...red, symbol:'PLAIN_RED', first_candle_turnover:8000},
+    {...possible, symbol:'PENDING', awaiting_confirmation:true, first_open_equals_low:true, first_candle_turnover:7000},
+    {...possible, symbol:'RETEST_LOW', possible_candidate:false, retest_break:true, first_candle_turnover:1000},
+    {...possible, symbol:'RETEST_HIGH', possible_candidate:false, retest_break:true, first_candle_turnover:6000},
+    ...['resistance_break','resistance_break_open','first_candle_high_break','first_open_equals_low'].map((badge,i)=>
+      ({...possible, symbol:`GREEN_${i}`, [badge]:true, first_candle_turnover:100+i})),
+    ...['first_candle_low_break','previous_day_low_cross','previous_day_low_cross_second_candle'].map((badge,i)=>
+      ({...red, symbol:`RED_${i}`, [badge]:true, first_candle_turnover:200+i})),
+    {...possible, symbol:'FULL_GREEN_LOW', resistance_break:true,resistance_break_open:true,first_candle_high_break:true,first_candle_turnover:10},
+    {...red, symbol:'FULL_RED', first_candle_low_break:true,previous_day_low_cross:true,previous_day_low_cross_second_candle:true,first_candle_turnover:20000},
+    {...red, symbol:'THREE_RED', first_candle_low_break:true,previous_day_low_cross:true,previous_day_low_cross_second_candle:false,first_candle_turnover:30000},
+    {...possible, symbol:'FULL_GREEN_HIGH', resistance_break:true,resistance_break_open:true,first_candle_high_break:true,first_candle_turnover:20},
+  ];
+  context.state = {stocks, status:'Live', unresolved_symbols:[]};
+  vm.runInContext('renderState(state)',context);
+  const symbols = [...elements.get('#stockRows').innerHTML.matchAll(/<strong>([A-Z][A-Z_0-9]*)<\/strong>/g)].map(m=>m[1]);
+  assert.deepEqual(symbols,['FULL_GREEN_HIGH','FULL_GREEN_LOW','THREE_RED','FULL_RED','PLAIN_GREEN','PLAIN_RED',
+    'PENDING','RETEST_HIGH','RETEST_LOW','RED_2','RED_1','RED_0','GREEN_3','GREEN_2','GREEN_1','GREEN_0']);
+  assert.equal(stocks[0].symbol,'PLAIN_GREEN');
 });
 
 test('backtest sends opening scan mode', async () => {
@@ -585,7 +646,7 @@ test('opening setups and algo start controls remain visible after 13:30 IST', ()
 });
 
 
-test('badge stocks sort by first-candle turnover across both setups', () => {
+test('partial badge combinations sort only by first-candle turnover, preserving ties and setup selection', () => {
   const { context, elements } = dashboard();
   const stocks = [
     {...fixtures()[0],symbol:'PLAIN',first_candle_turnover:990000000},
@@ -598,10 +659,10 @@ test('badge stocks sort by first-candle turnover across both setups', () => {
   context.state={stocks,status:'Live',unresolved_symbols:[]};
   vm.runInContext('renderState(state)', context);
   const symbols=()=>[...elements.get('#stockRows').innerHTML.matchAll(/<strong>(PLAIN|RED19|GREEN20|TIE20|MISSING|PROVISIONAL)<\/strong>/g)].map(m=>m[1]);
-  assert.deepEqual(symbols(),['GREEN20','TIE20','RED19','MISSING','PLAIN','PROVISIONAL']);
+  assert.deepEqual(symbols(),['PLAIN','PROVISIONAL','GREEN20','TIE20','RED19','MISSING']);
   stocks[0].previous_day_high_cross=true;
   vm.runInContext('renderState(state)', context);
-  assert.deepEqual(symbols(),['PLAIN','GREEN20','TIE20','RED19','MISSING','PROVISIONAL']);
+  assert.deepEqual(symbols(),['PLAIN','PROVISIONAL','GREEN20','TIE20','RED19','MISSING']);
   elements.get('#setupFilter').value='redwala';
   vm.runInContext('renderState(state)', context);
   assert.deepEqual(symbols(),['RED19','MISSING']);
@@ -639,7 +700,7 @@ test('dashboard absolute volume filter is strict, preserves badge priority and s
   assert.equal(elements.get('#dashboardVolumeMin').value, 100000);
   elements.get('#dashboardVolumeEnabled').checked = true;
   elements.get('#dashboardVolumeEnabled').listeners.change();
-  assert.deepEqual(symbols(), ['GREEN', 'RED', 'PLAINHIGH', 'PLAINLOW']);
+  assert.deepEqual(symbols(), ['PLAINHIGH', 'PLAINLOW', 'GREEN', 'RED']);
   assert.match(elements.get('#dashboardVolumeSummary').textContent, /Showing 4 of 9/);
   assert.equal(elements.get('#stockCount').textContent, '9/10');
   assert.equal(stocks[0].symbol, 'LOW');
