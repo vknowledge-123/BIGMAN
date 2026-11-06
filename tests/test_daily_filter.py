@@ -224,7 +224,7 @@ def test_sdk_cache_restart_repair_backtest_and_api_contract(tmp_path, monkeypatc
             assert row["previous_day_low_cross"] is True
             assert row["previous_day_high_cross"] is False
             assert row["daily_filter"] == persisted
-        assert len(client.daily_calls) == 2
+        assert len(client.daily_calls) == 1  # Raw dated daily cache also serves replay.
         assert all(call[2:] == (1, False) for call in client.minute_calls)
         assert store.load().opening_volume_cache["COALINDIA"]["daily_filter"] == persisted
 
@@ -290,6 +290,7 @@ def test_live_refresh_checks_first_at_916_and_retries_without_second(tmp_path, m
         return pair("red", None, True)
 
     monkeypatch.setattr(engine, "_fetch_opening_candles", fetch)
+    monkeypatch.setattr("app.dhan_scanner.time.monotonic", lambda: clock[0].timestamp())
     engine._run_opening_confirmation(StopEvent())
     assert calls == ([("09:16:00", False), ("09:16:02", False)] if first_response_delayed else [("09:16:00", False)])
     assert state.opening_pair_confirmed is False

@@ -62,7 +62,7 @@ def test_daily_first_only_survivors_need_minute_history_and_same_day_cache_reuse
     monkeypatch.setattr(engine, "_fetch_daily_filter", fetch_daily)
     monkeypatch.setattr(engine, "_fetch_opening_volume_history", fetch_volume)
     assert engine.cache_opening_volume_averages() == {"A": 100_000, "C": 100_000}
-    assert calls == [("daily", "A"), ("daily", "B"), ("daily", "C"), ("volume", "A"), ("volume", "C")]
+    assert calls == [("daily", "A"), ("volume", "A"), ("daily", "B"), ("daily", "C"), ("volume", "C")]
     persisted = engine.store.load()
     assert persisted.previous_closes == {"A": 102, "B": 102, "C": 102}
     assert persisted.opening_volume_cache["B"]["daily_filter"]["previous_high"] == 103
@@ -124,8 +124,9 @@ def test_restart_reuses_today_cache_and_discards_previous_sessions(engine, monke
     engine.store.update_opening_volume_cache({"A": old})
     engine._states = {}
     engine.prepare_symbols(["A"])
-    assert engine._states["A"].opening_volume_average is None
-    assert engine._states["A"].preparation_status == "unresolved"
+    # An older replay snapshot cannot replace a newer session's prepared data.
+    assert engine._states["A"].opening_volume_average == 100_000
+    assert engine._states["A"].preparation_status == "ready"
 
 
 def tick(engine, clock, label, volume, price=100):
@@ -201,27 +202,20 @@ def test_incomplete_apparent_reject_and_unresolved_only_retry_after_matches(engi
     assert calls == ["A", "M"]
     assert missing.confirmation_status == "unresolved"
     engine.evaluate_opening_candidates(only_pending=True)
+    assert calls == ["A", "M"]  # Backoff prevents tight retry loops.
+    missing.confirmation_retry_at = 0
+    engine.evaluate_opening_candidates(only_pending=True)
     assert calls == ["A", "M", "M"]
 
 
-def test_priority_confirmation_blocks_background_history_until_released(engine):
+def test_idle_priority_context_does_not_block_preparation(engine):
     calls = []
-    started, finished = threading.Event(), threading.Event()
-
-    def background():
-        started.set()
-        engine._history_call(lambda: calls.append("background"))
-        finished.set()
-
     with engine._priority_history():
-        worker = threading.Thread(target=background)
+        worker = threading.Thread(target=lambda: engine._history_call(lambda: calls.append("background")))
         worker.start()
-        assert started.wait(1)
-        assert not finished.wait(0.03)
-        engine._history_call(lambda: calls.append("confirmation"))
-    worker.join(2)
-    assert finished.is_set()
-    assert calls == ["confirmation", "background"]
+        worker.join(2)
+        assert not worker.is_alive()
+    assert calls == ["background"]
 
 
 def test_priority_released_on_error(engine):

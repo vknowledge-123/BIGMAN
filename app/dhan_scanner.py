@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from .fno_symbols import FNO_SYMBOLS
-from .daily_filter import apply_daily_volume_limit, calculate_daily_filter
+from .daily_filter import apply_daily_volume_limit, calculate_daily_filter, parse_daily_sessions
 from .schemas import VolumeFilterSettings
 from .opening_filters import evaluate as evaluate_opening_filters, missing_history as missing_opening_history
 from .opening_patterns import first_high_broken, retest_sequence
@@ -201,6 +201,8 @@ class StockState:
     volume_session: date | None = None
     preparation_status: str = "unresolved"
     confirmation_status: str = "pending"
+    confirmation_retry_at: float = 0.0
+    confirmation_attempts: int = 0
     opening_metadata_pending: bool = False
     provisional_setup: str | None = None
     feed_baseline_session: date | None = None
@@ -298,11 +300,16 @@ class ScannerEngine:
         self.store = store
         self.resolver = InstrumentResolver()
         self._lock = threading.RLock()
-        self._history_lock = threading.Lock()
         self._history_condition = threading.Condition()
         self._priority_workers = 0
+        self._history_waiters = []
+        self._history_busy = False
+        self._history_priority_streak = 0
+        self._stock_work_locks = {}
+        self._opening_recovery = set()
+        self._opening_diagnostics = {}
         self._request_context = threading.local()
-        self._volume_filters = store.load().volume_filters
+        self._volume_filters = store.load(include_cache=False).volume_filters
         self._settings_lock = threading.Lock()
         self._opening_finished = True
         self._preparation_lock = threading.Lock()
@@ -407,6 +414,8 @@ class ScannerEngine:
                     state.possible_candidate = state.redwala_gira = state.retest_break = state.qualifies_scan = False
                     state.provisional_setup = None
                     state.confirmation_status = "pending"
+                    state.confirmation_retry_at = 0
+                    state.confirmation_attempts = 0
                     state.candidate_reason = None
                     state.status = "Filters updated; awaiting opening check"
                     state.preparation_status = "unresolved"
@@ -466,13 +475,13 @@ class ScannerEngine:
                         self._status = f"Filters applied; live subscription update failed: {exc}. Save again to retry."
 
     def credentials_ready(self) -> bool:
-        config = self.store.load()
+        config = self.store.load(include_cache=False)
         return bool(config.client_id and config.access_token)
 
     def _client(self) -> Any:
         if DhanContext is None or dhanhq is None:
             raise RuntimeError("dhanhq SDK is not installed. Run: py -m pip install -r requirements.txt")
-        config = self.store.load()
+        config = self.store.load(include_cache=False)
         if not config.client_id or not config.access_token:
             raise RuntimeError("Save Dhan client ID and access token first")
         return dhanhq(DhanContext(config.client_id, config.access_token))
@@ -571,7 +580,7 @@ class ScannerEngine:
         return {"average": state.opening_volume_average, "samples": state.opening_volume_samples,
                 "required_opening_volume": self.volume_filters.minute_volume_min * state.opening_volume_average if state.opening_volume_average else None,
                 "volume_session": state.volume_session.isoformat() if state.volume_session else None,
-                "daily_filter": state.daily_filter, "cached_at": datetime.now(IST).isoformat(timespec="seconds")}
+                "daily_filter": state.daily_filter, "cached_at": datetime.now(IST).isoformat(timespec="microseconds")}
 
     def _prepare_daily(self, client: Any, state: StockState, session: date, *, need_five: bool = False) -> None:
         fetched = not self._daily_ready(state, session)
@@ -618,7 +627,7 @@ class ScannerEngine:
             state.error = None
 
         if fetched:
-            self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+            self._persist_cache(state)
         price_missing = missing_price_history(state.daily_filter, session, self.volume_filters, price_setup)
         if price_missing:
             state.preparation_status = "unresolved"
@@ -670,6 +679,37 @@ class ScannerEngine:
         with self._preparation_lock:
             return self._prepare_scan_universe()
 
+    def _work_lock(self, symbol: str):
+        with self._lock:
+            return self._stock_work_locks.setdefault(symbol, threading.RLock())
+
+    @contextmanager
+    def _cache_batch(self):
+        if getattr(self._request_context, "cache_batch", None) is not None:
+            yield
+            return
+        self._request_context.cache_batch = {}
+        self._request_context.cache_flush_at = time.monotonic()
+        try:
+            yield
+        finally:
+            pending = self._request_context.cache_batch
+            self._request_context.cache_batch = None
+            if pending:
+                self.store.update_opening_volume_cache(pending)
+
+    def _persist_cache(self, state: StockState):
+        entry = self._cache_entry(state)
+        pending = getattr(self._request_context, "cache_batch", None)
+        if pending is None:
+            self.store.update_opening_volume_cache({state.instrument.symbol: entry})
+            return
+        pending[state.instrument.symbol] = entry
+        if len(pending) >= 25 or time.monotonic() - self._request_context.cache_flush_at >= 2:
+            self.store.update_opening_volume_cache(pending)
+            pending.clear()
+            self._request_context.cache_flush_at = time.monotonic()
+
     def _prepare_scan_universe(self) -> dict[str, float]:
         client = self._client()
         session = datetime.now(IST).date()
@@ -678,59 +718,60 @@ class ScannerEngine:
         if not states:
             raise RuntimeError("Add stocks first")
         fatal_error = None
-        # Complete daily filtering for the entire universe before minute-history work.
-        for stage in ("daily", "volume"):
-            pending = list(states)
+        pending = list(states)
+        # Finish each survivor's prerequisites before moving on. Only failed stocks retry.
+        with self._cache_batch():
             for attempt in range(3):
-                if not pending or fatal_error:
-                    break
                 retry = []
                 for index, state in enumerate(pending):
-                    try:
-                        if stage == "daily":
-                            self._prepare_daily(client, state, session)
-                        elif self._daily_ready(state, session) and state.daily_filter["passes"]:
-                            self._prepare_volume(client, state, session)
-                        else:
+                    with self._work_lock(state.instrument.symbol):
+                        if self._states.get(state.instrument.symbol) is not state:
                             continue
-                    except Exception as exc:
-                        with self._lock:
-                            state.preparation_status = "unresolved"
-                            state.status = "Preparation unresolved"
-                            state.error = str(exc)
-                            state.possible_candidate = state.retest_break = False
-                            state.redwala_gira = bool(state.redwala_gira and state.confirmed_opening_candle
-                                                     and state.confirmed_opening_candle.start.date() == session)
-                            state.qualifies_scan = state.redwala_gira
-                        retry.append(state)
-                        if _should_stop_api_batch(exc):
-                            fatal_error = str(exc)
-                            for remaining in pending[index + 1:]:
-                                remaining.preparation_status = "unresolved"
-                                remaining.status = "volume cache skipped"
-                                remaining.error = f"Skipped after Dhan error: {exc}"
-                                remaining.possible_candidate = remaining.retest_break = False
-                                remaining.redwala_gira = bool(remaining.redwala_gira and remaining.confirmed_opening_candle
-                                                             and remaining.confirmed_opening_candle.start.date() == session)
-                                remaining.qualifies_scan = remaining.redwala_gira
-                                remaining.provisional_setup = None
-                            break
+                        try:
+                            self._prepare_daily(client, state, session)
+                            if self._daily_ready(state, session) and state.daily_filter["passes"]:
+                                self._prepare_volume(client, state, session)
+                        except Exception as exc:
+                            with self._lock:
+                                state.preparation_status = "unresolved"
+                                state.status = "Preparation unresolved"
+                                state.error = str(exc)
+                                state.possible_candidate = state.retest_break = False
+                                state.redwala_gira = bool(state.redwala_gira and state.confirmed_opening_candle
+                                                         and state.confirmed_opening_candle.start.date() == session)
+                                state.qualifies_scan = state.redwala_gira
+                            retry.append(state)
+                            if _should_stop_api_batch(exc):
+                                fatal_error = str(exc)
+                        finally:
+                            self._persist_cache(state)
                     with self._lock:
-                        self._status = f"Preparing {stage}: {index + 1}/{len(pending)} (pass {attempt + 1})"
+                        ready = sum(s.preparation_status == "ready" for s in states)
+                        self._status = f"Preparing stocks: {index + 1}/{len(pending)} (pass {attempt + 1}); {ready} ready"
+                    if fatal_error:
+                        for remaining in pending[index+1:]:
+                            remaining.preparation_status = "unresolved"
+                            remaining.status = "volume cache skipped"
+                            remaining.possible_candidate = remaining.retest_break = False
+                            remaining.redwala_gira = bool(remaining.redwala_gira and remaining.confirmed_opening_candle
+                                                         and remaining.confirmed_opening_candle.start.date() == session)
+                            remaining.qualifies_scan = remaining.redwala_gira
+                            remaining.provisional_setup = None
+                            remaining.error = f"Skipped after Dhan error: {fatal_error}"
+                        break
                 pending = retry
-            self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state) for state in states})
-            if fatal_error:
-                break
-        closes = {state.instrument.symbol: state.previous_close for state in states
-                  if self._daily_ready(state, session) and state.previous_close}
+                if not pending or fatal_error:
+                    break
+        closes = {s.instrument.symbol:s.previous_close for s in states if self._daily_ready(s,session) and s.previous_close}
         if closes:
             self.store.update_previous_closes(closes)
-        cached = {state.instrument.symbol: state.opening_volume_average for state in states
-                  if state.preparation_status == "ready" and self._volume_ready(state, session)}
-        excluded = sum(state.preparation_status == "excluded" for state in states)
-        unresolved = sum(state.preparation_status == "unresolved" for state in states)
+        cached = {s.instrument.symbol:s.opening_volume_average for s in states
+                  if s.preparation_status == "ready" and self._volume_ready(s,session)}
         with self._lock:
-            self._status = f"Prepared {len(cached)}; daily filter excluded {excluded}; unresolved {unresolved}"
+            self._status = (f"Prepared {len(cached)}; daily filter excluded {sum(s.preparation_status == 'excluded' for s in states)}; "
+                            f"unresolved {sum(s.preparation_status == 'unresolved' for s in states)}")
+        if self._running:
+            self._candidate_refresh.set()
         if not cached and fatal_error:
             raise RuntimeError(fatal_error)
         self.refresh_circuit_limits(client)
@@ -742,37 +783,61 @@ class ScannerEngine:
         instrument: Instrument,
     ) -> tuple[list[dict[str, Any]], list[Candle]]:
         now = datetime.now(IST)
+        key = self._instrument_cache_key(instrument)
+        cached = self.store.history.get("opening", key)
         all_candles: dict[datetime, Candle] = {}
         cursor_end = now
-
-        for _ in range(6):
-            window_start = cursor_end - timedelta(days=9)
-            response = self._intraday_with_retry(
-                client,
-                instrument.security_id,
-                instrument.exchange_segment,
-                instrument.instrument_type,
-                window_start.strftime("%Y-%m-%d %H:%M:%S"),
-                cursor_end.strftime("%Y-%m-%d %H:%M:%S"),
-            )
-            for candle in self._parse_intraday_candles(response):
-                all_candles[candle.start] = candle
-
-            samples = self._select_historical_opening_samples(
-                list(all_candles.values()), now.date(), VOLUME_SAMPLE_COUNT
-            )
+        incremental_start = None
+        try:
+            if cached and cached.get("version") == 1:
+                coverage = date.fromisoformat(cached["through"])
+                if now.date() - timedelta(days=9) <= coverage <= now.date():
+                    for row in cached.get("bars", []):
+                        start = datetime.fromisoformat(row["start"])
+                        values = [float(row[name]) for name in ("open", "high", "low", "close", "volume")]
+                        if start.tzinfo is None or any(not math.isfinite(v) for v in values) or min(values[:4]) <= 0 or values[4] < 0:
+                            raise ValueError("Invalid cached candle")
+                        bar = Candle(start, *values)
+                        if bar.start.date() < coverage:
+                            all_candles[bar.start] = bar
+                    if coverage == now.date():
+                        samples = self._select_historical_opening_samples(list(all_candles.values()), now.date(), VOLUME_SAMPLE_COUNT)
+                        if len(samples) == VOLUME_SAMPLE_COUNT:
+                            return samples, []
+                    incremental_start = datetime.combine(coverage, dt_time(), tzinfo=IST)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            all_candles.clear()
+            incremental_start = None
+        for attempt in range(6):
+            window_start = incremental_start if attempt == 0 and incremental_start else cursor_end - timedelta(days=9)
+            response = self._intraday_with_retry(client, instrument.security_id, instrument.exchange_segment,
+                instrument.instrument_type, window_start.strftime("%Y-%m-%d %H:%M:%S"), cursor_end.strftime("%Y-%m-%d %H:%M:%S"))
+            incoming = self._parse_intraday_candles(response)
+            if attempt == 0 and incremental_start and not any(b.start.date() < now.date() for b in incoming):
+                # No unverified rollover: obtain a full window if delta is empty.
+                all_candles.clear()
+                window_start = cursor_end - timedelta(days=9)
+                response = self._intraday_with_retry(client, instrument.security_id, instrument.exchange_segment,
+                    instrument.instrument_type, window_start.strftime("%Y-%m-%d %H:%M:%S"), cursor_end.strftime("%Y-%m-%d %H:%M:%S"))
+                incoming = self._parse_intraday_candles(response)
+            all_candles.update({bar.start:bar for bar in incoming if bar.end <= now})
+            samples = self._select_historical_opening_samples(list(all_candles.values()), now.date(), VOLUME_SAMPLE_COUNT)
             if len(samples) == VOLUME_SAMPLE_COUNT:
-                today_candles = [
-                    candle
-                    for candle in all_candles.values()
-                    if candle.start.date() == now.date() and candle.end <= now
-                ]
-                return samples, today_candles
+                dated = {}
+                for bar in sorted(all_candles.values(), key=lambda b:b.start):
+                    if bar.start.date() < now.date():
+                        dated.setdefault(bar.start.date(), []).append(bar)
+                retained = {}
+                for day in sorted(dated)[-60:]:
+                    opening = self._first_opening_candle(dated[day])
+                    for bar in ([opening] if opening else []) + [dated[day][-1]]:
+                        retained[bar.start] = dict(start=bar.start.isoformat(), open=bar.open, high=bar.high,
+                                                   low=bar.low, close=bar.close, volume=bar.volume)
+                self.store.history.put("opening",key,{"version":1,"through":now.date().isoformat(),"bars":list(retained.values())})
+                today = [b for b in all_candles.values() if b.start.date() == now.date()]
+                return samples, today
             cursor_end = window_start
-
-        raise RuntimeError(
-            f"Only {len(samples)} valid prior opening candle(s) found; 3 are required"
-        )
+        raise RuntimeError(f"Only {len(samples)} valid prior opening candle(s) found; 3 are required")
 
     def _select_historical_opening_samples(
         self,
@@ -824,23 +889,64 @@ class ScannerEngine:
         gap_percent = abs((candle.open - previous_close) / previous_close * 100)
         return any(abs(gap_percent - band) <= 0.35 for band in CIRCUIT_BANDS)
 
+    @staticmethod
+    def _instrument_cache_key(instrument: Instrument) -> str:
+        return f"{instrument.exchange_segment}:{instrument.instrument_type}:{instrument.security_id}"
+
+    @staticmethod
+    def _daily_payload(bars: list[dict]) -> dict:
+        return {"timestamp": [datetime.fromisoformat(row["date"]).replace(tzinfo=IST).timestamp() for row in bars],
+                **{key:[row.get(key) for row in bars] for key in ("open","high","low","close","volume")}}
+
     def _fetch_daily_filter(self, client: Any, instrument: Instrument, target_date: date) -> dict:
         settings = self.volume_filters
         start_date = target_date - timedelta(days=resistance.history_days(settings))
-        response = self._historical_daily_with_retry(
-            client,
-            instrument.security_id,
-            instrument.exchange_segment,
-            instrument.instrument_type,
-            start_date.isoformat(),
-            target_date.isoformat(),
-        )
+        key = self._instrument_cache_key(instrument)
+        cached = self.store.history.get("daily", key)
+        previous = {}
+        fetch_start = start_date
         try:
+            try:
+                if cached and cached.get("version") == 1 and date.fromisoformat(cached["start"]) <= start_date:
+                    coverage = date.fromisoformat(cached["through"])
+                    previous = parse_daily_sessions(self._daily_payload(cached["bars"]), target_date)
+                    # Corrupt or insufficient cached inputs must refetch, not fail forever.
+                    capacity = settings.resistance_lookback + settings.resistance_left if settings.resistance_filter else 0
+                    validated = calculate_daily_filter(self._daily_payload(list(previous.values())), target_date, settings.daily_volume_max, capacity)
+                    if (resistance.missing_history(validated, target_date, settings)
+                            or missing_opening_history(validated, target_date, settings)
+                            or missing_price_history(validated, target_date, settings, "possible")
+                            or missing_price_history(validated, target_date, settings, "redwala")):
+                        previous = {}
+                    elif coverage >= target_date:
+                        fetch_start = None
+                    elif previous:
+                        fetch_start = max(start_date, max(previous))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                previous = {}
+                fetch_start = start_date
+            if fetch_start is not None:
+                response = self._historical_daily_with_retry(client, instrument.security_id,
+                    instrument.exchange_segment, instrument.instrument_type, fetch_start.isoformat(), target_date.isoformat())
+                incoming = parse_daily_sessions(_extract_data(response), target_date)
+                if previous and (not incoming or max(incoming) <= max(previous)):
+                    # Empty incremental data could be a holiday OR an incomplete response.
+                    # Recheck the full window rather than silently trusting yesterday's values.
+                    response = self._historical_daily_with_retry(client, instrument.security_id,
+                        instrument.exchange_segment, instrument.instrument_type, start_date.isoformat(), target_date.isoformat())
+                    incoming = parse_daily_sessions(_extract_data(response), target_date)
+                    previous = {}
+                previous.update(incoming)
+            bars = [previous[d] for d in sorted(previous) if start_date <= d < target_date]
             capacity = settings.resistance_lookback + settings.resistance_left if settings.resistance_filter else 0
-            daily = calculate_daily_filter(_extract_data(response), target_date, settings.daily_volume_max, capacity)
-            resistance.selection(daily, target_date, settings)  # Warm derived cache before opening.
+            daily = calculate_daily_filter(self._daily_payload(bars), target_date, settings.daily_volume_max, capacity)
+            # Missing OHLC for an enabled resistance filter must stay retryable.
+            if not resistance.missing_history(daily, target_date, settings):
+                self.store.history.put("daily", key, {"version":1, "start":start_date.isoformat(),
+                    "through":target_date.isoformat(), "bars":bars})
+            resistance.selection(daily, target_date, settings)
             return daily
-        except (RuntimeError, ValueError) as exc:
+        except (RuntimeError, ValueError, KeyError, TypeError) as exc:
             raise RuntimeError(f"Daily history for {instrument.symbol} (security ID {instrument.security_id}, "
                                f"{start_date} to {target_date}, end exclusive): {exc}") from exc
 
@@ -1178,7 +1284,7 @@ class ScannerEngine:
                 self._history_condition.notify_all()
 
     def evaluate_opening_candidates(self, client: Any | None = None, *, only_pending: bool = False) -> int:
-        with self._priority_history():
+        with self._priority_history(), self._cache_batch():
             return self._confirm_opening_candidates(client, only_pending=only_pending)
 
     def _confirm_opening_candidates(self, client: Any | None = None, *, only_pending: bool = False) -> int:
@@ -1196,8 +1302,16 @@ class ScannerEngine:
                 break
             if only_pending and self._opening_check_complete(state, session):
                 continue
+            if only_pending and state.confirmation_retry_at > time.monotonic():
+                continue
+            work_lock = self._work_lock(state.instrument.symbol)
+            if not work_lock.acquire(blocking=not only_pending):
+                continue  # Preparation will publish this stock; try another stock now.
             candles = []
             try:
+                if only_pending and self._opening_check_complete(state, session):
+                    continue
+                state.confirmation_attempts += 1
                 confirmed = state.confirmed_opening_candle
                 candles = ([confirmed] if only_pending and confirmed and confirmed.start.date() == session
                            else self._fetch_opening_candles(client, state.instrument))
@@ -1213,14 +1327,17 @@ class ScannerEngine:
                     self._prepare_volume(client, state, session, stop_event if only_pending else None)
                     if only_pending and stop_event.is_set():
                         break
-                    self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+                    self._persist_cache(state)
                 with self._lock:
                     if (only_pending and stop_event.is_set()) or self._states.get(state.instrument.symbol) is not state:
                         break
                     self._apply_opening_candidate(state.instrument.symbol, candles)
                     state.opening_metadata_pending = False
+                state.confirmation_retry_at = 0
+                state.confirmation_attempts = 0
                 checked_count += 1
             except Exception as exc:
+                state.confirmation_retry_at = time.monotonic() + min(30, 2 ** min(state.confirmation_attempts, 5))
                 if state.redwala_gira and candles:
                     state.opening_metadata_pending = True
                     # Missing daily/minute history affects other setups and PDL metadata only.
@@ -1243,6 +1360,8 @@ class ScannerEngine:
                             remaining.error = f"Opening candle check skipped: {exc}"
                             remaining.confirmation_status = "unresolved"
                     raise RuntimeError(str(exc)) from exc
+            finally:
+                work_lock.release()
         if states and checked_count == 0 and first_error:
             raise RuntimeError(first_error)
         # Circuit quotes have their own worker and never delay automatic confirmation.
@@ -1526,7 +1645,7 @@ class ScannerEngine:
                         state.daily_filter = apply_daily_volume_limit(daily, self.volume_filters.daily_volume_max)
                         self._update_retest(state)
                         qualification = self._qualify_signal(signal, state.daily_filter, now.date())
-                    self.store.update_opening_volume_cache({state.instrument.symbol: self._cache_entry(state)})
+                    self._persist_cache(state)
                     if not qualification["retest_eligible"]:
                         continue
                 response = self._intraday_with_retry(
@@ -1605,20 +1724,34 @@ class ScannerEngine:
     def _fetch_opening_candles(self, client: Any, instrument: Instrument) -> list[Candle]:
         now = datetime.now(IST)
         today = now.date()
-        session_start = datetime.combine(today, dt_time(9, 14), tzinfo=IST)
-        session_end = min(now, datetime.combine(today, dt_time(9, 20), tzinfo=IST))
-        response = self._intraday_with_retry(
-            client,
-            instrument.security_id,
-            instrument.exchange_segment,
-            instrument.instrument_type,
-            session_start.strftime("%Y-%m-%d %H:%M:%S"),
-            session_end.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        return [
-            candle for candle in self._parse_intraday_candles(response)
-            if candle.start.date() == today and candle.end <= now
-        ]
+        key = (self._instrument_cache_key(instrument), today.isoformat())
+        narrow_start = datetime.combine(today, dt_time(9, 14), tzinfo=IST)
+        narrow_end = min(now, datetime.combine(today, dt_time(9, 20), tzinfo=IST))
+        # Some responses omit the opening boundary for a short intraday window.
+        # Broaden once, then use the recovery window directly on later retries.
+        wide_start = datetime.combine(today - timedelta(days=1), dt_time(), tzinfo=IST)
+        windows = [(wide_start, now)] if key in self._opening_recovery else [(narrow_start, narrow_end), (wide_start, now)]
+        for start, end in windows:
+            response = self._intraday_with_retry(client, instrument.security_id, instrument.exchange_segment,
+                instrument.instrument_type, start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S"))
+            parsed = self._parse_intraday_candles(response)
+            candles = [bar for bar in parsed if bar.start.date() == today and bar.end <= now]
+            first = self._first_opening_candle(candles)
+            diagnostic = {"session": today.isoformat(), "requested_from": start.isoformat(), "requested_to": end.isoformat(),
+                          "returned_count": len(parsed), "completed_today_count": len(candles),
+                          "first_timestamp": min((bar.start.isoformat() for bar in parsed), default=None),
+                          "last_timestamp": max((bar.start.isoformat() for bar in parsed), default=None),
+                          "opening_found": first is not None, "checked_at": now.isoformat()}
+            self._opening_diagnostics[instrument.symbol] = diagnostic
+            self.store.history.put("opening_diagnostic", key[0], diagnostic)
+            if first is not None:
+                return candles
+            self._opening_recovery.add(key)
+            LOGGER.warning("Opening history missing for %s (security %s): %s", instrument.symbol, instrument.security_id, diagnostic)
+        detail = self._opening_diagnostics[instrument.symbol]
+        raise RuntimeError("Dhan did not return the first opening candle; "
+                           f"returned {detail['returned_count']} candles, "
+                           f"timestamps {detail['first_timestamp']} to {detail['last_timestamp']}; recovery will retry")
 
     def _evaluate_first_opening_candle(self, candles: list[Candle]) -> tuple[bool, str]:
         # Retain the legacy field name for API compatibility; only the first colour matters.
@@ -1786,35 +1919,46 @@ class ScannerEngine:
         raise RuntimeError(last_error or "Dhan intraday request failed")
 
     def _history_call(self, method: Any, *args: Any, **kwargs: Any) -> Any:
-        priority = getattr(self._request_context, "priority", False)
-        while True:
-            with self._history_condition:
-                while not priority and self._history_reserved():
+        priority = bool(getattr(self._request_context, "priority", False))
+        ticket = object()
+        stop = getattr(self._request_context, "stop_event", None)
+        with self._history_condition:
+            self._history_waiters.append((ticket, priority))
+            try:
+                while True:
+                    if stop and stop.is_set():
+                        raise RuntimeError("Scanner stopped while waiting for history")
+                    high = [w for w in self._history_waiters if w[1]]
+                    background = [w for w in self._history_waiters if not w[1]]
+                    # Reserve one in four slots for waiting preparation/backfill work.
+                    selected = (background[0] if background and (not high or self._history_priority_streak >= 3)
+                                else high[0] if high else background[0])
+                    if not self._history_busy and selected[0] is ticket:
+                        self._history_busy = True
+                        self._history_priority_streak = self._history_priority_streak + 1 if priority else 0
+                        break
                     self._history_condition.wait(0.1)
-            with self._history_lock:
-                # Recheck after a request already in flight finishes.
-                if not priority and self._history_reserved():
-                    continue
-                delay = HISTORY_REQUEST_SPACING - (time.monotonic() - self._last_history_call)
-                if delay > 0:
-                    time.sleep(delay)
-                self._last_history_call = time.monotonic()
-                return method(*args, **kwargs)
+            finally:
+                self._history_waiters = [w for w in self._history_waiters if w[0] is not ticket]
+        try:
+            delay = HISTORY_REQUEST_SPACING - (time.monotonic() - self._last_history_call)
+            if delay > 0:
+                time.sleep(delay)
+            self._last_history_call = time.monotonic()
+            return method(*args, **kwargs)
+        finally:
+            with self._history_condition:
+                self._history_busy = False
+                self._history_condition.notify_all()
 
     def _history_reserved(self) -> bool:
-        now = datetime.now(IST)
-        opening_due = self._running and not self._opening_finished and dt_time(9, 16) <= now.time() < dt_time(9, 30)
-        return self._priority_workers > 0 or opening_due
-
-
-
-
-
+        # No clock-based reservation: failed confirmations must not freeze caching.
+        return any(priority for _, priority in self._history_waiters)
 
     def start(self) -> None:
         if MarketFeed is None or DhanContext is None:
             raise RuntimeError("dhanhq SDK is not installed. Run: py -m pip install -r requirements.txt")
-        config = self.store.load()
+        config = self.store.load(include_cache=False)
         if not config.client_id or not config.access_token:
             raise RuntimeError("Save Dhan client ID and access token first")
         with self._lock:
@@ -1838,6 +1982,8 @@ class ScannerEngine:
                 state.opening_first_tick = state.opening_last_tick = None
                 state.last_cumulative_volume = None
                 state.current_candle = None
+                state.confirmation_retry_at = 0
+                state.confirmation_attempts = 0
                 if state.signal_session != session:
                     state.confirmation_status = "pending"
                     state.provisional_setup = None
@@ -1961,11 +2107,16 @@ class ScannerEngine:
         if stop_event.wait(max((ready_at - now).total_seconds(), 0)):
             return
         self._screen_live_opening(now.date())
-        for attempt in range(6):
+        attempt = 0
+        while not stop_event.is_set():
+            current = datetime.now(IST)
+            if current.date() != now.date() or current.time() >= dt_time(15, 31):
+                return
             if attempt and stop_event.wait(2):
                 return
+            attempt += 1
             with self._lock:
-                if self._states and all(self._opening_check_complete(state, now.date()) for state in self._states.values()):
+                if not self._states or all(self._opening_check_complete(state, now.date()) for state in self._states.values()):
                     return
             try:
                 count = self.evaluate_opening_candidates(only_pending=True)

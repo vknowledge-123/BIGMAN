@@ -160,7 +160,7 @@ class AlgoService:
             if not eligible or not (state.possible_candidate if request.setup == 'possible' else state.redwala_gira):
                 raise ValueError('Select a confirmed Possible Candidate or Redwala from today’s scan')
             instrument = state.instrument
-        config = self.engine.store.load()
+        config = self.engine.store.load(include_cache=False)
         if not config.client_id or not config.access_token:
             raise ValueError('Save Dhan credentials for live bid/ask data')
         self.journal.acquire()

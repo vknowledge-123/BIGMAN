@@ -9,4 +9,5 @@ data/*.json
 data/*.csv
 data/*.log
 data/*.pid
+data/*.sqlite3*
 !data/.gitkeep

@@ -71,7 +71,7 @@ class OrderSocket:
 class DhanAlgoBroker:
     def __init__(self, engine, wake):
         self.engine, self.wake = engine, wake
-        config = engine.store.load()
+        config = engine.store.load(include_cache=False)
         self.account = config.client_id
         self._token = config.access_token
         self.client = engine._client()
@@ -89,7 +89,7 @@ class DhanAlgoBroker:
         self._last_call = 0
 
     def identity_ok(self):
-        config = self.engine.store.load()
+        config = self.engine.store.load(include_cache=False)
         return config.client_id == self.account and config.access_token == self._token
 
     def call(self, method, *args, **kwargs):

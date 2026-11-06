@@ -62,6 +62,8 @@ def test_redwala_missing_daily_data_retries_and_restores_low_badge(integration):
         ctx.engine.evaluate_opening_candidates(only_pending=True)
     assert ctx.http.get('/api/state').json()['stocks'][0]['redwala_gira']
     ctx.broker.fail_daily = False
+    for state in ctx.engine._states.values():
+        state.confirmation_retry_at = 0  # Simulate the scheduled retry after backoff.
     ctx.engine.evaluate_opening_candidates(only_pending=True)
     row = next(row for row in ctx.http.get('/api/state').json()['stocks'] if row['symbol'] == 'RED')
     assert row['daily_filter'] is not None

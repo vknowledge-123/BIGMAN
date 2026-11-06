@@ -14,8 +14,7 @@ def _daily_price(values: list, index: int) -> float | None:
         return None
 
 
-def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 4.0,
-                           resistance_capacity: int = 0) -> dict:
+def parse_daily_sessions(data: dict, target_date: date) -> dict:
     """Use completed sessions strictly before the scan date; cache opening-filter inputs."""
     timestamps = data.get("timestamp") or []
     closes = data.get("close") or []
@@ -50,6 +49,12 @@ def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 
             sessions[session] = bar
         except (ValueError, TypeError, OverflowError, OSError) as exc:
             raise ValueError(f"Invalid Dhan daily candle: {exc}") from exc
+    return sessions
+
+
+def calculate_daily_filter(data: dict, target_date: date, volume_limit: float = 4.0,
+                           resistance_capacity: int = 0) -> dict:
+    sessions = parse_daily_sessions(data, target_date)
     if len(sessions) < 4:
         raise ValueError("Four completed daily candles are required for the previous-day filter")
     bars = [sessions[session] for session in sorted(sessions)[-4:]]
