@@ -4,7 +4,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { test } = require('node:test');
 
-function dashboard(storage) {
+function dashboard(storage, {circuitDefault = false} = {}) {
   const elements = new Map();
   const context = vm.createContext({
     AbortController, setTimeout, clearTimeout,
@@ -21,6 +21,9 @@ function dashboard(storage) {
     window: { addEventListener() {}, localStorage: storage },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/static/app.js'), 'utf8'), context);
+  // Legacy fixtures exercise other features without circuit quotes. New circuit
+  // tests opt into the real default and persisted preference below.
+  if (!circuitDefault) vm.runInContext('dashboardCircuitEnabled = false; els.dashboardCircuitEnabled.checked = false;', context);
   elements.get('#dailyVolumeMax').value = '4';
   elements.get('#minuteVolumeMin').value = '4';
   elements.get('#firstCandleTurnoverMin').value = '3';
@@ -53,6 +56,70 @@ function fixtures() {
     { ...base, symbol: 'APIERROR', qualifies_scan: false, error: 'Daily history missing' },
   ];
 }
+
+test('circuit default hides low and unverified bands, preserves turnover and badge priority', () => {
+  const {context, elements} = dashboard(undefined, {circuitDefault:true});
+  const eligible = {circuit_band_eligible:true, circuit_band_status:'verified', circuit_band_percent:20,
+    upper_circuit_limit:120, lower_circuit_limit:80, upper_circuit_distance_percent:9.090909,
+    lower_circuit_distance_percent:27.272727, first_candle_turnover:100};
+  context.state = {status:'Live', unresolved_symbols:[], stocks:[
+    {...fixtures()[0], ...eligible, symbol:'PLAIN', first_candle_turnover:300},
+    {...fixtures()[0], ...eligible, symbol:'PRIORITY', resistance_break:true, resistance_break_open:true, first_candle_high_break:true},
+    {...fixtures()[1], ...eligible, symbol:'RED', first_candle_low_break:true, previous_day_low_cross:true},
+    {...fixtures()[0], ...eligible, symbol:'TEN', circuit_band_eligible:false, circuit_band_percent:10},
+    {...fixtures()[1], ...eligible, symbol:'FIVE', circuit_band_eligible:false, circuit_band_percent:5},
+    {...fixtures()[0], ...eligible, symbol:'STALE', circuit_band_status:'pending_or_stale'},
+    {...fixtures()[0], ...eligible, symbol:'DYNAMIC', circuit_band_status:'dynamic'},
+    {...fixtures()[0], symbol:'UNKNOWN'},
+  ]};
+  vm.runInContext('renderState(state)',context);
+  assert.equal(elements.get('#dashboardCircuitEnabled').checked,true);
+  const html=elements.get('#stockRows').innerHTML;
+  assert.deepEqual([...html.matchAll(/<strong>(PRIORITY|RED|PLAIN)<\/strong>/g)].map(m=>m[1]), ['PRIORITY','RED','PLAIN']);
+  for (const symbol of ['TEN','FIVE','STALE','DYNAMIC','UNKNOWN']) assert.doesNotMatch(html,new RegExp(`<strong>${symbol}</strong>`));
+  assert.match(html,/9.09%/); assert.match(html,/27.27%/);
+  assert.match(elements.get('#dashboardCircuitSummary').textContent,/3 setups.*2 below 20%, 3 unverified/);
+  assert.equal(elements.get('#stockCount').textContent,'8/8');
+});
+
+test('circuit toggle persists, toggles immediately, and never filters historical results', () => {
+  const values = new Map();
+  const storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
+  const {context,elements}=dashboard(storage,{circuitDefault:true});
+  context.state={status:'Live',unresolved_symbols:[],stocks:fixtures()};
+  vm.runInContext('renderState(state)',context);
+  assert.match(elements.get('#stockRows').innerHTML,/No matching setups have a verified circuit band/);
+  context.result={stocks:fixtures(),target_date:'2026-10-01',qualified_count:2,candidate_count:1,error_count:0};
+  vm.runInContext('renderBacktest(result)',context);
+  assert.match(elements.get('#backtestRows').innerHTML,/GREENPAIR/);
+  assert.match(elements.get('#backtestRows').innerHTML,/REDPAIR/);
+  const toggle=elements.get('#dashboardCircuitEnabled');
+  toggle.checked=false; toggle.listeners.change();
+  assert.match(elements.get('#stockRows').innerHTML,/GREENPAIR/);
+  assert.equal(values.get('scanner.dashboardCircuit.v1'),'false');
+  assert.equal(dashboard(storage,{circuitDefault:true}).elements.get('#dashboardCircuitEnabled').checked,false);
+  toggle.checked=true; toggle.listeners.change();
+  assert.equal(values.get('scanner.dashboardCircuit.v1'),'true');
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML,/<strong>GREENPAIR<\/strong>/);
+});
+
+test('corrupt or blocked storage defaults circuit filter ON; volume and maximum price still combine', () => {
+  for (const value of ['null','{}','"false"','broken']) {
+    const storage={getItem:()=>value};
+    assert.equal(dashboard(storage,{circuitDefault:true}).elements.get('#dashboardCircuitEnabled').checked,true);
+  }
+  const {context,elements}=dashboard(undefined,{circuitDefault:true});
+  context.state={status:'Live',unresolved_symbols:[],stocks:[{...fixtures()[0], circuit_band_status:'verified',
+    circuit_band_eligible:true,circuit_band_percent:20,today_opening_volume:100001,ltp:251}]};
+  vm.runInContext('dashboardVolumeFilter={enabled:true,minimum:100000}; dashboardPriceFilter={enabled:true,maximum:250}; renderState(state)',context);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML,/<strong>GREENPAIR<\/strong>/);
+  context.state.stocks[0].ltp=250;
+  vm.runInContext('renderState(state)',context);
+  assert.match(elements.get('#stockRows').innerHTML,/<strong>GREENPAIR<\/strong>/);
+  context.state.stocks[0].today_opening_volume=100000;
+  vm.runInContext('renderState(state)',context);
+  assert.doesNotMatch(elements.get('#stockRows').innerHTML,/<strong>GREENPAIR<\/strong>/);
+});
 
 test('daily resistance settings validate, describe and submit all controls', () => {
   const {context, elements} = dashboard();
@@ -595,6 +662,39 @@ test('first-candle setup and crossing badges appear in live and backtest without
   vm.runInContext('renderState(state)', context);
   assert.match(elements.get('#stockRows').innerHTML, /redwala gira/);
   assert.doesNotMatch(elements.get('#stockRows').innerHTML, /Possible candidate|open ==low|previous day high cross/);
+});
+
+test('under_3.5% badge uses the absolute opening gap in live and backtest, independently of the filter', () => {
+  const { context, elements } = dashboard();
+  const base = { ...fixtures()[0], first_candle_high_break: false };
+  const cases = [
+    [207, 200, true], [193, 200, true], [200, 200, true],
+    [206.99, 200, true], [207.01, 200, false], [192.99, 200, false],
+    [127.77075, 123.45, true],
+    [null, 200, false], [200, null, false], [200, 0, false], [200, undefined, false],
+  ];
+  for (const enabled of [false, true]) {
+    for (const [opening, previousClose, expected] of cases) {
+      const row = { ...base, first_candle_open: opening,
+        daily_filter: { ...base.daily_filter, previous_close: previousClose } };
+      const settings = { possible_open_pre_close: enabled, possible_open_pre_close_max: 9 };
+      context.state = { stocks: [row], volume_filters: settings, status: 'Idle', unresolved_symbols: [] };
+      context.result = { stocks: [row], volume_filters: settings, qualified_count: 1, candidate_count: 1, error_count: 0 };
+      vm.runInContext('renderState(state); renderBacktest(result)', context);
+      for (const id of ['#stockRows', '#backtestRows']) {
+        assert.equal(elements.get(id).innerHTML.includes('>under_3.5%</span>'), expected,
+          `${id}: opening ${opening}, previous close ${previousClose}, toggle ${enabled}`);
+      }
+    }
+  }
+  for (const setup of [
+    { possible_candidate: false, redwala_gira: true },
+    { possible_candidate: false, retest_break: true },
+    { possible_candidate: true, awaiting_confirmation: true },
+  ]) {
+    context.row = { ...base, first_candle_open: 200, daily_filter: { previous_close: 200 }, ...setup };
+    assert.doesNotMatch(vm.runInContext('fmtSignalBadge(row, "test")', context), /under_3\.5%/);
+  }
 });
 
 test('circuit distances display percentage, zero at the limit and missing states', () => {

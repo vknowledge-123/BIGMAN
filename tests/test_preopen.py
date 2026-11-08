@@ -130,6 +130,7 @@ def test_csv_import_browser_workflow(integration):
         browser = p.chromium.launch(channel='msedge', headless=True)
         try:
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.route('**/*', route)
@@ -232,6 +233,7 @@ def test_raw_nse_turnover_preview_apply_and_reload_in_browser(integration):
         browser=p.chromium.launch(channel='msedge',headless=True)
         try:
             page=browser.new_page()
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)))
             page.route('**/*',route)

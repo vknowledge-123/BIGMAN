@@ -193,7 +193,7 @@ def test_polling_worker_stops_on_event(scanner, monkeypatch):
             return False
 
         def wait(self, seconds):
-            assert seconds == 60
+            assert seconds == 2  # Discover new qualifiers promptly; each stock still refreshes every 60s.
             return True
 
     scanner._refresh_circuit_limits_loop(StopEvent())

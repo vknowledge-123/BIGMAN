@@ -1,0 +1,162 @@
+[
+  {
+    "method": "GET",
+    "path": "/",
+    "handler": "dashboard",
+    "parameters": "",
+    "response_model": "dynamic / HTML",
+    "source_line": 57
+  },
+  {
+    "method": "GET",
+    "path": "/api/config",
+    "handler": "get_config",
+    "parameters": "",
+    "response_model": "ConfigOut",
+    "source_line": 69
+  },
+  {
+    "method": "POST",
+    "path": "/api/volume-filters",
+    "handler": "save_volume_filters",
+    "parameters": "payload: VolumeFilterSettings",
+    "response_model": "MessageOut",
+    "source_line": 82
+  },
+  {
+    "method": "POST",
+    "path": "/api/credentials",
+    "handler": "save_credentials",
+    "parameters": "payload: CredentialsIn",
+    "response_model": "MessageOut",
+    "source_line": 87
+  },
+  {
+    "method": "POST",
+    "path": "/api/symbols",
+    "handler": "save_symbols",
+    "parameters": "payload: SymbolsIn",
+    "response_model": "MessageOut",
+    "source_line": 96
+  },
+  {
+    "method": "GET",
+    "path": "/api/preopen",
+    "handler": "get_preopen_import",
+    "parameters": "",
+    "response_model": "dynamic / HTML",
+    "source_line": 114
+  },
+  {
+    "method": "POST",
+    "path": "/api/preopen/preview",
+    "handler": "preview_preopen",
+    "parameters": "payload: PreopenRequest",
+    "response_model": "dynamic / HTML",
+    "source_line": 119
+  },
+  {
+    "method": "POST",
+    "path": "/api/preopen/apply",
+    "handler": "apply_preopen",
+    "parameters": "payload: PreopenRequest",
+    "response_model": "dynamic / HTML",
+    "source_line": 127
+  },
+  {
+    "method": "POST",
+    "path": "/api/cache",
+    "handler": "cache_data",
+    "parameters": "",
+    "response_model": "MessageOut",
+    "source_line": 144
+  },
+  {
+    "method": "POST",
+    "path": "/api/cache-volume",
+    "handler": "cache_volume_average",
+    "parameters": "",
+    "response_model": "MessageOut",
+    "source_line": 153
+  },
+  {
+    "method": "POST",
+    "path": "/api/backtest",
+    "handler": "run_backtest",
+    "parameters": "payload: BacktestIn",
+    "response_model": "BacktestOut",
+    "source_line": 165
+  },
+  {
+    "method": "POST",
+    "path": "/api/start",
+    "handler": "start_scan",
+    "parameters": "",
+    "response_model": "MessageOut",
+    "source_line": 179
+  },
+  {
+    "method": "POST",
+    "path": "/api/stop",
+    "handler": "stop_scan",
+    "parameters": "",
+    "response_model": "MessageOut",
+    "source_line": 188
+  },
+  {
+    "method": "POST",
+    "path": "/api/repair",
+    "handler": "repair_missing",
+    "parameters": "",
+    "response_model": "MessageOut",
+    "source_line": 194
+  },
+  {
+    "method": "GET",
+    "path": "/api/state",
+    "handler": "get_state",
+    "parameters": "",
+    "response_model": "StateOut",
+    "source_line": 210
+  },
+  {
+    "method": "POST",
+    "path": "/api/algo/settings",
+    "handler": "save_algo_settings",
+    "parameters": "payload: AlgoSettings",
+    "response_model": "MessageOut",
+    "source_line": 215
+  },
+  {
+    "method": "POST",
+    "path": "/api/algo/start",
+    "handler": "start_algo",
+    "parameters": "payload: AlgoStart",
+    "response_model": "dynamic / HTML",
+    "source_line": 221
+  },
+  {
+    "method": "POST",
+    "path": "/api/algo/{session_id}/exit",
+    "handler": "exit_algo",
+    "parameters": "session_id: str",
+    "response_model": "MessageOut",
+    "source_line": 230
+  },
+  {
+    "method": "POST",
+    "path": "/api/algo/{session_id}/resume",
+    "handler": "resume_algo",
+    "parameters": "session_id: str",
+    "response_model": "MessageOut",
+    "source_line": 239
+  },
+  {
+    "method": "POST",
+    "path": "/api/algo/backtest",
+    "handler": "backtest_algo",
+    "parameters": "payload: AlgoBacktest",
+    "response_model": "dynamic / HTML",
+    "source_line": 248
+  }
+]

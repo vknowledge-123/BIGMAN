@@ -288,6 +288,7 @@ def test_browser_settings_persistence_badges_and_backtest(integration, monkeypat
         browser = p.chromium.launch(channel='msedge', headless=True)
         try:
             page = browser.new_page(viewport={'width':1440,'height':1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.route('**/*',route)

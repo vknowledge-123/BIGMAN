@@ -23,6 +23,8 @@ from .opening_patterns import first_high_broken, retest_sequence
 from .setup_price_filters import evaluate as evaluate_price_filters, missing_history as missing_price_history
 from . import resistance
 from .storage import DATA_DIR, ConfigStore
+from .feed_lifecycle import close_market_feed
+from . import circuit_bands
 
 try:
     from dhanhq import DhanContext, MarketFeed, dhanhq
@@ -217,6 +219,7 @@ class StockState:
     circuit_fetched_at: datetime | None = None
     circuit_attempt_at: datetime | None = None
     circuit_error: str | None = None
+    circuit_reference_close: float | None = None
     candidate_reason: str | None = None
     status: str = "waiting"
     error: str | None = None
@@ -914,6 +917,7 @@ class ScannerEngine:
                     capacity = settings.resistance_lookback + settings.resistance_left if settings.resistance_filter else 0
                     validated = calculate_daily_filter(self._daily_payload(list(previous.values())), target_date, settings.daily_volume_max, capacity)
                     if (resistance.missing_history(validated, target_date, settings)
+                            or (settings.today_open_cross and self._five_day_close_level(validated, target_date) is None)
                             or missing_opening_history(validated, target_date, settings)
                             or missing_price_history(validated, target_date, settings, "possible")
                             or missing_price_history(validated, target_date, settings, "redwala")):
@@ -1456,6 +1460,7 @@ class ScannerEngine:
                                 upper = lower = None
                             state.upper_circuit_limit = upper
                             state.lower_circuit_limit = lower
+                            state.circuit_reference_close = circuit_bands.reference_close(item, state.daily_filter, fetched_at.date())
                             state.circuit_fetched_at = fetched_at
                             state.circuit_error = None if upper is not None and lower is not None else "Dhan circuit limit unavailable or invalid"
                             price = _float_or_none(item.get("last_price"))
@@ -1471,6 +1476,7 @@ class ScannerEngine:
                     for state in states:
                         if self._states.get(state.instrument.symbol) is state:
                             state.upper_circuit_limit = state.lower_circuit_limit = None
+                            state.circuit_reference_close = None
                             state.circuit_error = f"Circuit quote failed: {exc}"
         finally:
             self._circuit_refresh_lock.release()
@@ -1487,7 +1493,9 @@ class ScannerEngine:
     def _refresh_circuit_limits_loop(self, stop_event: threading.Event) -> None:
         while not stop_event.is_set():
             self.refresh_circuit_limits()
-            if stop_event.wait(CIRCUIT_REFRESH_SECONDS):
+            # Newly confirmed stocks need their first quote promptly. Individual
+            # stocks still refresh at most once per CIRCUIT_REFRESH_SECONDS.
+            if stop_event.wait(2):
                 return
 
     def _apply_opening_candidate(self, symbol: str, candles: list[Candle]) -> bool:
@@ -2060,10 +2068,7 @@ class ScannerEngine:
             if self._status != "Idle":
                 self._status = "Stopped"
         if feed is not None:
-            try:
-                feed.close_connection()
-            except Exception as exc:
-                LOGGER.warning("Error closing Dhan feed: %s", exc)
+            close_market_feed(feed)
 
     def _opening_check_complete(self, state: StockState, session: date) -> bool:
         if state.opening_metadata_pending:
@@ -2459,7 +2464,7 @@ class ScannerEngine:
         now = datetime.now(IST)
         fresh = (state.circuit_fetched_at is not None
                  and state.circuit_fetched_at.date() == now.date()
-                 and (now - state.circuit_fetched_at).total_seconds() <= CIRCUIT_REFRESH_SECONDS * 2)
+                 and 0 <= (now - state.circuit_fetched_at).total_seconds() <= CIRCUIT_REFRESH_SECONDS * 2)
         upper = state.upper_circuit_limit if fresh else None
         lower = state.lower_circuit_limit if fresh else None
         price = _float_or_none(state.ltp)
@@ -2477,6 +2482,10 @@ class ScannerEngine:
         return {
             "upper_circuit_limit": upper,
             "lower_circuit_limit": lower,
+            **circuit_bands.classify(upper, lower, state.circuit_reference_close, fresh=fresh,
+                is_fno=state.instrument.symbol in FNO_SYMBOLS,
+                inconsistent=bool(price and ((upper is not None and price > upper) or (lower is not None and price < lower)))),
+            "circuit_reference_close": state.circuit_reference_close if fresh else None,
             "upper_circuit_distance_percent": upper_distance,
             "lower_circuit_distance_percent": lower_distance,
             "circuit_fetched_at": state.circuit_fetched_at.isoformat(timespec="seconds") if state.circuit_fetched_at else None,

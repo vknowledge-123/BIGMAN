@@ -35,6 +35,7 @@ const stocks = [
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await page.addInitScript(() => localStorage.setItem('scanner.dashboardCircuit.v1', 'false')); // Legacy non-circuit fixtures.
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('**/api/**', route => {

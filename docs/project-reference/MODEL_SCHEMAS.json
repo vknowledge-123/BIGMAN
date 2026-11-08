@@ -1,0 +1,4854 @@
+{
+  "VolumeFilterSettings": {
+    "properties": {
+      "daily_volume_max": {
+        "default": 4.0,
+        "exclusiveMinimum": 0.0,
+        "title": "Daily Volume Max",
+        "type": "number"
+      },
+      "minute_volume_min": {
+        "default": 4.0,
+        "exclusiveMinimum": 0.0,
+        "title": "Minute Volume Min",
+        "type": "number"
+      },
+      "first_candle_turnover_min": {
+        "default": 30000000,
+        "exclusiveMinimum": 0.0,
+        "title": "First Candle Turnover Min",
+        "type": "number"
+      },
+      "today_open_cross": {
+        "default": false,
+        "title": "Today Open Cross",
+        "type": "boolean"
+      },
+      "monthly_filter": {
+        "default": false,
+        "title": "Monthly Filter",
+        "type": "boolean"
+      },
+      "last_two_days_filter": {
+        "default": false,
+        "title": "Last Two Days Filter",
+        "type": "boolean"
+      },
+      "redwala_open_previous_close": {
+        "default": false,
+        "title": "Redwala Open Previous Close",
+        "type": "boolean"
+      },
+      "redwala_open_gap_max": {
+        "default": 1.0,
+        "minimum": 0.0,
+        "title": "Redwala Open Gap Max",
+        "type": "number"
+      },
+      "redwala_open_tolerance": {
+        "default": false,
+        "title": "Redwala Open Tolerance",
+        "type": "boolean"
+      },
+      "redwala_open_tolerance_max": {
+        "default": 0.5,
+        "minimum": 0.0,
+        "title": "Redwala Open Tolerance Max",
+        "type": "number"
+      },
+      "pdhl_filter": {
+        "default": false,
+        "title": "Pdhl Filter",
+        "type": "boolean"
+      },
+      "pdhl_max": {
+        "default": 4.0,
+        "minimum": 0.0,
+        "title": "Pdhl Max",
+        "type": "number"
+      },
+      "possible_open_pre_close": {
+        "default": false,
+        "title": "Possible Open Pre Close",
+        "type": "boolean"
+      },
+      "possible_open_pre_close_max": {
+        "default": 1.0,
+        "minimum": 0.0,
+        "title": "Possible Open Pre Close Max",
+        "type": "number"
+      },
+      "resistance_filter": {
+        "default": false,
+        "title": "Resistance Filter",
+        "type": "boolean"
+      },
+      "resistance_lookback": {
+        "default": 60,
+        "maximum": 252,
+        "minimum": 5,
+        "title": "Resistance Lookback",
+        "type": "integer"
+      },
+      "resistance_left": {
+        "default": 2,
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Resistance Left",
+        "type": "integer"
+      },
+      "resistance_right": {
+        "default": 2,
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Resistance Right",
+        "type": "integer"
+      },
+      "resistance_min_age": {
+        "default": 4,
+        "maximum": 252,
+        "minimum": 1,
+        "title": "Resistance Min Age",
+        "type": "integer"
+      },
+      "resistance_max_age": {
+        "default": 60,
+        "maximum": 252,
+        "minimum": 1,
+        "title": "Resistance Max Age",
+        "type": "integer"
+      },
+      "resistance_buffer": {
+        "default": 0,
+        "maximum": 100.0,
+        "minimum": 0.0,
+        "title": "Resistance Buffer",
+        "type": "number"
+      },
+      "resistance_pullback": {
+        "default": false,
+        "title": "Resistance Pullback",
+        "type": "boolean"
+      },
+      "resistance_pullback_min": {
+        "default": 3,
+        "maximum": 100.0,
+        "minimum": 0.0,
+        "title": "Resistance Pullback Min",
+        "type": "number"
+      }
+    },
+    "title": "VolumeFilterSettings",
+    "type": "object"
+  },
+  "CredentialsIn": {
+    "properties": {
+      "client_id": {
+        "minLength": 1,
+        "title": "Client Id",
+        "type": "string"
+      },
+      "access_token": {
+        "default": "",
+        "title": "Access Token",
+        "type": "string"
+      }
+    },
+    "required": [
+      "client_id"
+    ],
+    "title": "CredentialsIn",
+    "type": "object"
+  },
+  "SymbolsIn": {
+    "properties": {
+      "symbols_text": {
+        "default": "",
+        "title": "Symbols Text",
+        "type": "string"
+      }
+    },
+    "title": "SymbolsIn",
+    "type": "object"
+  },
+  "BacktestIn": {
+    "$defs": {
+      "VolumeFilterSettings": {
+        "properties": {
+          "daily_volume_max": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Volume Max",
+            "type": "number"
+          },
+          "minute_volume_min": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minute Volume Min",
+            "type": "number"
+          },
+          "first_candle_turnover_min": {
+            "default": 30000000,
+            "exclusiveMinimum": 0.0,
+            "title": "First Candle Turnover Min",
+            "type": "number"
+          },
+          "today_open_cross": {
+            "default": false,
+            "title": "Today Open Cross",
+            "type": "boolean"
+          },
+          "monthly_filter": {
+            "default": false,
+            "title": "Monthly Filter",
+            "type": "boolean"
+          },
+          "last_two_days_filter": {
+            "default": false,
+            "title": "Last Two Days Filter",
+            "type": "boolean"
+          },
+          "redwala_open_previous_close": {
+            "default": false,
+            "title": "Redwala Open Previous Close",
+            "type": "boolean"
+          },
+          "redwala_open_gap_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Redwala Open Gap Max",
+            "type": "number"
+          },
+          "redwala_open_tolerance": {
+            "default": false,
+            "title": "Redwala Open Tolerance",
+            "type": "boolean"
+          },
+          "redwala_open_tolerance_max": {
+            "default": 0.5,
+            "minimum": 0.0,
+            "title": "Redwala Open Tolerance Max",
+            "type": "number"
+          },
+          "pdhl_filter": {
+            "default": false,
+            "title": "Pdhl Filter",
+            "type": "boolean"
+          },
+          "pdhl_max": {
+            "default": 4.0,
+            "minimum": 0.0,
+            "title": "Pdhl Max",
+            "type": "number"
+          },
+          "possible_open_pre_close": {
+            "default": false,
+            "title": "Possible Open Pre Close",
+            "type": "boolean"
+          },
+          "possible_open_pre_close_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Possible Open Pre Close Max",
+            "type": "number"
+          },
+          "resistance_filter": {
+            "default": false,
+            "title": "Resistance Filter",
+            "type": "boolean"
+          },
+          "resistance_lookback": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 5,
+            "title": "Resistance Lookback",
+            "type": "integer"
+          },
+          "resistance_left": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Left",
+            "type": "integer"
+          },
+          "resistance_right": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Right",
+            "type": "integer"
+          },
+          "resistance_min_age": {
+            "default": 4,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Min Age",
+            "type": "integer"
+          },
+          "resistance_max_age": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Max Age",
+            "type": "integer"
+          },
+          "resistance_buffer": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Buffer",
+            "type": "number"
+          },
+          "resistance_pullback": {
+            "default": false,
+            "title": "Resistance Pullback",
+            "type": "boolean"
+          },
+          "resistance_pullback_min": {
+            "default": 3,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Pullback Min",
+            "type": "number"
+          }
+        },
+        "title": "VolumeFilterSettings",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "target_date": {
+        "format": "date",
+        "title": "Target Date",
+        "type": "string"
+      },
+      "scan_type": {
+        "const": "opening",
+        "default": "opening",
+        "title": "Scan Type",
+        "type": "string"
+      },
+      "volume_filters": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/VolumeFilterSettings"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "target_date"
+    ],
+    "title": "BacktestIn",
+    "type": "object"
+  },
+  "MessageOut": {
+    "properties": {
+      "ok": {
+        "title": "Ok",
+        "type": "boolean"
+      },
+      "message": {
+        "title": "Message",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ok",
+      "message"
+    ],
+    "title": "MessageOut",
+    "type": "object"
+  },
+  "ConfigOut": {
+    "$defs": {
+      "VolumeFilterSettings": {
+        "properties": {
+          "daily_volume_max": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Volume Max",
+            "type": "number"
+          },
+          "minute_volume_min": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minute Volume Min",
+            "type": "number"
+          },
+          "first_candle_turnover_min": {
+            "default": 30000000,
+            "exclusiveMinimum": 0.0,
+            "title": "First Candle Turnover Min",
+            "type": "number"
+          },
+          "today_open_cross": {
+            "default": false,
+            "title": "Today Open Cross",
+            "type": "boolean"
+          },
+          "monthly_filter": {
+            "default": false,
+            "title": "Monthly Filter",
+            "type": "boolean"
+          },
+          "last_two_days_filter": {
+            "default": false,
+            "title": "Last Two Days Filter",
+            "type": "boolean"
+          },
+          "redwala_open_previous_close": {
+            "default": false,
+            "title": "Redwala Open Previous Close",
+            "type": "boolean"
+          },
+          "redwala_open_gap_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Redwala Open Gap Max",
+            "type": "number"
+          },
+          "redwala_open_tolerance": {
+            "default": false,
+            "title": "Redwala Open Tolerance",
+            "type": "boolean"
+          },
+          "redwala_open_tolerance_max": {
+            "default": 0.5,
+            "minimum": 0.0,
+            "title": "Redwala Open Tolerance Max",
+            "type": "number"
+          },
+          "pdhl_filter": {
+            "default": false,
+            "title": "Pdhl Filter",
+            "type": "boolean"
+          },
+          "pdhl_max": {
+            "default": 4.0,
+            "minimum": 0.0,
+            "title": "Pdhl Max",
+            "type": "number"
+          },
+          "possible_open_pre_close": {
+            "default": false,
+            "title": "Possible Open Pre Close",
+            "type": "boolean"
+          },
+          "possible_open_pre_close_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Possible Open Pre Close Max",
+            "type": "number"
+          },
+          "resistance_filter": {
+            "default": false,
+            "title": "Resistance Filter",
+            "type": "boolean"
+          },
+          "resistance_lookback": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 5,
+            "title": "Resistance Lookback",
+            "type": "integer"
+          },
+          "resistance_left": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Left",
+            "type": "integer"
+          },
+          "resistance_right": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Right",
+            "type": "integer"
+          },
+          "resistance_min_age": {
+            "default": 4,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Min Age",
+            "type": "integer"
+          },
+          "resistance_max_age": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Max Age",
+            "type": "integer"
+          },
+          "resistance_buffer": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Buffer",
+            "type": "number"
+          },
+          "resistance_pullback": {
+            "default": false,
+            "title": "Resistance Pullback",
+            "type": "boolean"
+          },
+          "resistance_pullback_min": {
+            "default": 3,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Pullback Min",
+            "type": "number"
+          }
+        },
+        "title": "VolumeFilterSettings",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "volume_filters": {
+        "$ref": "#/$defs/VolumeFilterSettings"
+      },
+      "has_credentials": {
+        "title": "Has Credentials",
+        "type": "boolean"
+      },
+      "client_id": {
+        "title": "Client Id",
+        "type": "string"
+      },
+      "symbols_text": {
+        "title": "Symbols Text",
+        "type": "string"
+      },
+      "cached_close_count": {
+        "title": "Cached Close Count",
+        "type": "integer"
+      },
+      "cached_volume_count": {
+        "title": "Cached Volume Count",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "has_credentials",
+      "client_id",
+      "symbols_text",
+      "cached_close_count",
+      "cached_volume_count"
+    ],
+    "title": "ConfigOut",
+    "type": "object"
+  },
+  "DailyVolumeFilter": {
+    "properties": {
+      "twenty_day_closes": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Twenty Day Closes",
+        "type": "array"
+      },
+      "last_two_day_candles": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Last Two Day Candles",
+        "type": "array"
+      },
+      "five_day_highest_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Five Day Highest Close"
+      },
+      "five_day_closes": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Five Day Closes",
+        "type": "array"
+      },
+      "volume_limit": {
+        "default": 4.0,
+        "title": "Volume Limit",
+        "type": "number"
+      },
+      "session_date": {
+        "title": "Session Date",
+        "type": "string"
+      },
+      "previous_date": {
+        "title": "Previous Date",
+        "type": "string"
+      },
+      "previous_volume": {
+        "title": "Previous Volume",
+        "type": "integer"
+      },
+      "previous_close": {
+        "title": "Previous Close",
+        "type": "number"
+      },
+      "previous_high": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Previous High"
+      },
+      "previous_low": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Previous Low"
+      },
+      "prior_close": {
+        "title": "Prior Close",
+        "type": "number"
+      },
+      "average": {
+        "title": "Average",
+        "type": "number"
+      },
+      "multiplier": {
+        "title": "Multiplier",
+        "type": "number"
+      },
+      "percent_change": {
+        "title": "Percent Change",
+        "type": "number"
+      },
+      "samples": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Samples",
+        "type": "array"
+      },
+      "passes": {
+        "title": "Passes",
+        "type": "boolean"
+      },
+      "price_exception": {
+        "title": "Price Exception",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "session_date",
+      "previous_date",
+      "previous_volume",
+      "previous_close",
+      "prior_close",
+      "average",
+      "multiplier",
+      "percent_change",
+      "samples",
+      "passes",
+      "price_exception"
+    ],
+    "title": "DailyVolumeFilter",
+    "type": "object"
+  },
+  "QualificationFields": {
+    "$defs": {
+      "DailyVolumeFilter": {
+        "properties": {
+          "twenty_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Twenty Day Closes",
+            "type": "array"
+          },
+          "last_two_day_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Last Two Day Candles",
+            "type": "array"
+          },
+          "five_day_highest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Five Day Highest Close"
+          },
+          "five_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Five Day Closes",
+            "type": "array"
+          },
+          "volume_limit": {
+            "default": 4.0,
+            "title": "Volume Limit",
+            "type": "number"
+          },
+          "session_date": {
+            "title": "Session Date",
+            "type": "string"
+          },
+          "previous_date": {
+            "title": "Previous Date",
+            "type": "string"
+          },
+          "previous_volume": {
+            "title": "Previous Volume",
+            "type": "integer"
+          },
+          "previous_close": {
+            "title": "Previous Close",
+            "type": "number"
+          },
+          "previous_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous High"
+          },
+          "previous_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Low"
+          },
+          "prior_close": {
+            "title": "Prior Close",
+            "type": "number"
+          },
+          "average": {
+            "title": "Average",
+            "type": "number"
+          },
+          "multiplier": {
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "percent_change": {
+            "title": "Percent Change",
+            "type": "number"
+          },
+          "samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "passes": {
+            "title": "Passes",
+            "type": "boolean"
+          },
+          "price_exception": {
+            "title": "Price Exception",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_date",
+          "previous_date",
+          "previous_volume",
+          "previous_close",
+          "prior_close",
+          "average",
+          "multiplier",
+          "percent_change",
+          "samples",
+          "passes",
+          "price_exception"
+        ],
+        "title": "DailyVolumeFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "resistance_level": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Level"
+      },
+      "resistance_threshold": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Threshold"
+      },
+      "resistance_date": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Date"
+      },
+      "resistance_age": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Age"
+      },
+      "resistance_pullback_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Pullback Percent"
+      },
+      "resistance_status": {
+        "default": "off",
+        "title": "Resistance Status",
+        "type": "string"
+      },
+      "resistance_break": {
+        "default": false,
+        "title": "Resistance Break",
+        "type": "boolean"
+      },
+      "resistance_break_open": {
+        "default": false,
+        "title": "Resistance Break Open",
+        "type": "boolean"
+      },
+      "resistance_break_open_candle": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break Open Candle"
+      },
+      "resistance_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break At"
+      },
+      "first_candle_high_break": {
+        "default": false,
+        "title": "First Candle High Break",
+        "type": "boolean"
+      },
+      "first_candle_low_break": {
+        "default": false,
+        "title": "First Candle Low Break",
+        "type": "boolean"
+      },
+      "previous_day_low_break": {
+        "default": false,
+        "title": "Previous Day Low Break",
+        "type": "boolean"
+      },
+      "retest_break": {
+        "default": false,
+        "title": "Retest Break",
+        "type": "boolean"
+      },
+      "retest_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Break At"
+      },
+      "retest_status": {
+        "default": "waiting",
+        "title": "Retest Status",
+        "type": "string"
+      },
+      "retest_reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Reason"
+      },
+      "daily_filter": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DailyVolumeFilter"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "redwala_gira": {
+        "default": false,
+        "title": "Redwala Gira",
+        "type": "boolean"
+      },
+      "qualifies_scan": {
+        "default": false,
+        "title": "Qualifies Scan",
+        "type": "boolean"
+      },
+      "first_candle_open": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Open"
+      },
+      "first_candle_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Close"
+      },
+      "first_candle_high": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle High"
+      },
+      "first_open_equals_high": {
+        "default": false,
+        "title": "First Open Equals High",
+        "type": "boolean"
+      },
+      "first_open_equals_low": {
+        "default": false,
+        "title": "First Open Equals Low",
+        "type": "boolean"
+      },
+      "previous_day_high_cross": {
+        "default": false,
+        "title": "Previous Day High Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross": {
+        "default": false,
+        "title": "Previous Day Low Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross_second_candle": {
+        "default": false,
+        "title": "Previous Day Low Cross Second Candle",
+        "type": "boolean"
+      }
+    },
+    "title": "QualificationFields",
+    "type": "object"
+  },
+  "StockRow": {
+    "$defs": {
+      "DailyVolumeFilter": {
+        "properties": {
+          "twenty_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Twenty Day Closes",
+            "type": "array"
+          },
+          "last_two_day_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Last Two Day Candles",
+            "type": "array"
+          },
+          "five_day_highest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Five Day Highest Close"
+          },
+          "five_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Five Day Closes",
+            "type": "array"
+          },
+          "volume_limit": {
+            "default": 4.0,
+            "title": "Volume Limit",
+            "type": "number"
+          },
+          "session_date": {
+            "title": "Session Date",
+            "type": "string"
+          },
+          "previous_date": {
+            "title": "Previous Date",
+            "type": "string"
+          },
+          "previous_volume": {
+            "title": "Previous Volume",
+            "type": "integer"
+          },
+          "previous_close": {
+            "title": "Previous Close",
+            "type": "number"
+          },
+          "previous_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous High"
+          },
+          "previous_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Low"
+          },
+          "prior_close": {
+            "title": "Prior Close",
+            "type": "number"
+          },
+          "average": {
+            "title": "Average",
+            "type": "number"
+          },
+          "multiplier": {
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "percent_change": {
+            "title": "Percent Change",
+            "type": "number"
+          },
+          "samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "passes": {
+            "title": "Passes",
+            "type": "boolean"
+          },
+          "price_exception": {
+            "title": "Price Exception",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_date",
+          "previous_date",
+          "previous_volume",
+          "previous_close",
+          "prior_close",
+          "average",
+          "multiplier",
+          "percent_change",
+          "samples",
+          "passes",
+          "price_exception"
+        ],
+        "title": "DailyVolumeFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "resistance_level": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Level"
+      },
+      "resistance_threshold": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Threshold"
+      },
+      "resistance_date": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Date"
+      },
+      "resistance_age": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Age"
+      },
+      "resistance_pullback_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Pullback Percent"
+      },
+      "resistance_status": {
+        "default": "off",
+        "title": "Resistance Status",
+        "type": "string"
+      },
+      "resistance_break": {
+        "default": false,
+        "title": "Resistance Break",
+        "type": "boolean"
+      },
+      "resistance_break_open": {
+        "default": false,
+        "title": "Resistance Break Open",
+        "type": "boolean"
+      },
+      "resistance_break_open_candle": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break Open Candle"
+      },
+      "resistance_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break At"
+      },
+      "first_candle_high_break": {
+        "default": false,
+        "title": "First Candle High Break",
+        "type": "boolean"
+      },
+      "first_candle_low_break": {
+        "default": false,
+        "title": "First Candle Low Break",
+        "type": "boolean"
+      },
+      "previous_day_low_break": {
+        "default": false,
+        "title": "Previous Day Low Break",
+        "type": "boolean"
+      },
+      "retest_break": {
+        "default": false,
+        "title": "Retest Break",
+        "type": "boolean"
+      },
+      "retest_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Break At"
+      },
+      "retest_status": {
+        "default": "waiting",
+        "title": "Retest Status",
+        "type": "string"
+      },
+      "retest_reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Reason"
+      },
+      "daily_filter": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DailyVolumeFilter"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "redwala_gira": {
+        "default": false,
+        "title": "Redwala Gira",
+        "type": "boolean"
+      },
+      "qualifies_scan": {
+        "default": false,
+        "title": "Qualifies Scan",
+        "type": "boolean"
+      },
+      "first_candle_open": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Open"
+      },
+      "first_candle_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Close"
+      },
+      "first_candle_high": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle High"
+      },
+      "first_open_equals_high": {
+        "default": false,
+        "title": "First Open Equals High",
+        "type": "boolean"
+      },
+      "first_open_equals_low": {
+        "default": false,
+        "title": "First Open Equals Low",
+        "type": "boolean"
+      },
+      "previous_day_high_cross": {
+        "default": false,
+        "title": "Previous Day High Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross": {
+        "default": false,
+        "title": "Previous Day Low Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross_second_candle": {
+        "default": false,
+        "title": "Previous Day Low Cross Second Candle",
+        "type": "boolean"
+      },
+      "preparation_status": {
+        "default": "unresolved",
+        "title": "Preparation Status",
+        "type": "string"
+      },
+      "confirmation_status": {
+        "default": "pending",
+        "title": "Confirmation Status",
+        "type": "string"
+      },
+      "provisional_setup": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Provisional Setup"
+      },
+      "awaiting_confirmation": {
+        "default": false,
+        "title": "Awaiting Confirmation",
+        "type": "boolean"
+      },
+      "required_opening_volume": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Required Opening Volume"
+      },
+      "feed_complete": {
+        "default": false,
+        "title": "Feed Complete",
+        "type": "boolean"
+      },
+      "upper_circuit_limit": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Upper Circuit Limit"
+      },
+      "lower_circuit_limit": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Lower Circuit Limit"
+      },
+      "upper_circuit_distance_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Upper Circuit Distance Percent"
+      },
+      "lower_circuit_distance_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Lower Circuit Distance Percent"
+      },
+      "circuit_fetched_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Circuit Fetched At"
+      },
+      "circuit_error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Circuit Error"
+      },
+      "circuit_reference_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Circuit Reference Close"
+      },
+      "circuit_band_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Circuit Band Percent"
+      },
+      "circuit_band_status": {
+        "default": "unverified",
+        "title": "Circuit Band Status",
+        "type": "string"
+      },
+      "circuit_band_eligible": {
+        "default": false,
+        "title": "Circuit Band Eligible",
+        "type": "boolean"
+      },
+      "symbol": {
+        "title": "Symbol",
+        "type": "string"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Name"
+      },
+      "security_id": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Security Id"
+      },
+      "previous_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Previous Close"
+      },
+      "ltp": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Ltp"
+      },
+      "percent_change": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Percent Change"
+      },
+      "candle_start": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle Start"
+      },
+      "candle_end": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle End"
+      },
+      "candle_open": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle Open"
+      },
+      "candle_high": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle High"
+      },
+      "candle_low": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle Low"
+      },
+      "candle_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candle Close"
+      },
+      "candle_volume": {
+        "default": 0,
+        "title": "Candle Volume",
+        "type": "integer"
+      },
+      "candle_turnover": {
+        "default": 0.0,
+        "title": "Candle Turnover",
+        "type": "number"
+      },
+      "day_volume": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Day Volume"
+      },
+      "last_tick_time": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Last Tick Time"
+      },
+      "opening_volume_average": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Opening Volume Average"
+      },
+      "opening_volume_samples": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Opening Volume Samples",
+        "type": "array"
+      },
+      "first_candle_color": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Color"
+      },
+      "second_candle_color": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Second Candle Color"
+      },
+      "first_candle_turnover": {
+        "default": 0.0,
+        "title": "First Candle Turnover",
+        "type": "number"
+      },
+      "opening_candles": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Opening Candles",
+        "type": "array"
+      },
+      "today_opening_volume": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Today Opening Volume"
+      },
+      "volume_multiplier": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Volume Multiplier"
+      },
+      "opening_colors_match": {
+        "default": false,
+        "title": "Opening Colors Match",
+        "type": "boolean"
+      },
+      "possible_candidate": {
+        "default": false,
+        "title": "Possible Candidate",
+        "type": "boolean"
+      },
+      "candidate_reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candidate Reason"
+      },
+      "is_fno": {
+        "default": false,
+        "title": "Is Fno",
+        "type": "boolean"
+      },
+      "status": {
+        "default": "waiting",
+        "title": "Status",
+        "type": "string"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      }
+    },
+    "required": [
+      "symbol"
+    ],
+    "title": "StockRow",
+    "type": "object"
+  },
+  "StateOut": {
+    "$defs": {
+      "DailyVolumeFilter": {
+        "properties": {
+          "twenty_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Twenty Day Closes",
+            "type": "array"
+          },
+          "last_two_day_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Last Two Day Candles",
+            "type": "array"
+          },
+          "five_day_highest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Five Day Highest Close"
+          },
+          "five_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Five Day Closes",
+            "type": "array"
+          },
+          "volume_limit": {
+            "default": 4.0,
+            "title": "Volume Limit",
+            "type": "number"
+          },
+          "session_date": {
+            "title": "Session Date",
+            "type": "string"
+          },
+          "previous_date": {
+            "title": "Previous Date",
+            "type": "string"
+          },
+          "previous_volume": {
+            "title": "Previous Volume",
+            "type": "integer"
+          },
+          "previous_close": {
+            "title": "Previous Close",
+            "type": "number"
+          },
+          "previous_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous High"
+          },
+          "previous_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Low"
+          },
+          "prior_close": {
+            "title": "Prior Close",
+            "type": "number"
+          },
+          "average": {
+            "title": "Average",
+            "type": "number"
+          },
+          "multiplier": {
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "percent_change": {
+            "title": "Percent Change",
+            "type": "number"
+          },
+          "samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "passes": {
+            "title": "Passes",
+            "type": "boolean"
+          },
+          "price_exception": {
+            "title": "Price Exception",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_date",
+          "previous_date",
+          "previous_volume",
+          "previous_close",
+          "prior_close",
+          "average",
+          "multiplier",
+          "percent_change",
+          "samples",
+          "passes",
+          "price_exception"
+        ],
+        "title": "DailyVolumeFilter",
+        "type": "object"
+      },
+      "StockRow": {
+        "properties": {
+          "resistance_level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Level"
+          },
+          "resistance_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Threshold"
+          },
+          "resistance_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Date"
+          },
+          "resistance_age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Age"
+          },
+          "resistance_pullback_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Pullback Percent"
+          },
+          "resistance_status": {
+            "default": "off",
+            "title": "Resistance Status",
+            "type": "string"
+          },
+          "resistance_break": {
+            "default": false,
+            "title": "Resistance Break",
+            "type": "boolean"
+          },
+          "resistance_break_open": {
+            "default": false,
+            "title": "Resistance Break Open",
+            "type": "boolean"
+          },
+          "resistance_break_open_candle": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Break Open Candle"
+          },
+          "resistance_break_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Break At"
+          },
+          "first_candle_high_break": {
+            "default": false,
+            "title": "First Candle High Break",
+            "type": "boolean"
+          },
+          "first_candle_low_break": {
+            "default": false,
+            "title": "First Candle Low Break",
+            "type": "boolean"
+          },
+          "previous_day_low_break": {
+            "default": false,
+            "title": "Previous Day Low Break",
+            "type": "boolean"
+          },
+          "retest_break": {
+            "default": false,
+            "title": "Retest Break",
+            "type": "boolean"
+          },
+          "retest_break_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retest Break At"
+          },
+          "retest_status": {
+            "default": "waiting",
+            "title": "Retest Status",
+            "type": "string"
+          },
+          "retest_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retest Reason"
+          },
+          "daily_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DailyVolumeFilter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "redwala_gira": {
+            "default": false,
+            "title": "Redwala Gira",
+            "type": "boolean"
+          },
+          "qualifies_scan": {
+            "default": false,
+            "title": "Qualifies Scan",
+            "type": "boolean"
+          },
+          "first_candle_open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Open"
+          },
+          "first_candle_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Close"
+          },
+          "first_candle_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle High"
+          },
+          "first_open_equals_high": {
+            "default": false,
+            "title": "First Open Equals High",
+            "type": "boolean"
+          },
+          "first_open_equals_low": {
+            "default": false,
+            "title": "First Open Equals Low",
+            "type": "boolean"
+          },
+          "previous_day_high_cross": {
+            "default": false,
+            "title": "Previous Day High Cross",
+            "type": "boolean"
+          },
+          "previous_day_low_cross": {
+            "default": false,
+            "title": "Previous Day Low Cross",
+            "type": "boolean"
+          },
+          "previous_day_low_cross_second_candle": {
+            "default": false,
+            "title": "Previous Day Low Cross Second Candle",
+            "type": "boolean"
+          },
+          "preparation_status": {
+            "default": "unresolved",
+            "title": "Preparation Status",
+            "type": "string"
+          },
+          "confirmation_status": {
+            "default": "pending",
+            "title": "Confirmation Status",
+            "type": "string"
+          },
+          "provisional_setup": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Provisional Setup"
+          },
+          "awaiting_confirmation": {
+            "default": false,
+            "title": "Awaiting Confirmation",
+            "type": "boolean"
+          },
+          "required_opening_volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Required Opening Volume"
+          },
+          "feed_complete": {
+            "default": false,
+            "title": "Feed Complete",
+            "type": "boolean"
+          },
+          "upper_circuit_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Upper Circuit Limit"
+          },
+          "lower_circuit_limit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lower Circuit Limit"
+          },
+          "upper_circuit_distance_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Upper Circuit Distance Percent"
+          },
+          "lower_circuit_distance_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Lower Circuit Distance Percent"
+          },
+          "circuit_fetched_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Circuit Fetched At"
+          },
+          "circuit_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Circuit Error"
+          },
+          "circuit_reference_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Circuit Reference Close"
+          },
+          "circuit_band_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Circuit Band Percent"
+          },
+          "circuit_band_status": {
+            "default": "unverified",
+            "title": "Circuit Band Status",
+            "type": "string"
+          },
+          "circuit_band_eligible": {
+            "default": false,
+            "title": "Circuit Band Eligible",
+            "type": "boolean"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Name"
+          },
+          "security_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Security Id"
+          },
+          "previous_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Close"
+          },
+          "ltp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Ltp"
+          },
+          "percent_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Percent Change"
+          },
+          "candle_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle Start"
+          },
+          "candle_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle End"
+          },
+          "candle_open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle Open"
+          },
+          "candle_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle High"
+          },
+          "candle_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle Low"
+          },
+          "candle_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candle Close"
+          },
+          "candle_volume": {
+            "default": 0,
+            "title": "Candle Volume",
+            "type": "integer"
+          },
+          "candle_turnover": {
+            "default": 0.0,
+            "title": "Candle Turnover",
+            "type": "number"
+          },
+          "day_volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Day Volume"
+          },
+          "last_tick_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Tick Time"
+          },
+          "opening_volume_average": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Opening Volume Average"
+          },
+          "opening_volume_samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Opening Volume Samples",
+            "type": "array"
+          },
+          "first_candle_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Color"
+          },
+          "second_candle_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Second Candle Color"
+          },
+          "first_candle_turnover": {
+            "default": 0.0,
+            "title": "First Candle Turnover",
+            "type": "number"
+          },
+          "opening_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Opening Candles",
+            "type": "array"
+          },
+          "today_opening_volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Today Opening Volume"
+          },
+          "volume_multiplier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Volume Multiplier"
+          },
+          "opening_colors_match": {
+            "default": false,
+            "title": "Opening Colors Match",
+            "type": "boolean"
+          },
+          "possible_candidate": {
+            "default": false,
+            "title": "Possible Candidate",
+            "type": "boolean"
+          },
+          "candidate_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candidate Reason"
+          },
+          "is_fno": {
+            "default": false,
+            "title": "Is Fno",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "waiting",
+            "title": "Status",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          }
+        },
+        "required": [
+          "symbol"
+        ],
+        "title": "StockRow",
+        "type": "object"
+      },
+      "VolumeFilterSettings": {
+        "properties": {
+          "daily_volume_max": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Volume Max",
+            "type": "number"
+          },
+          "minute_volume_min": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minute Volume Min",
+            "type": "number"
+          },
+          "first_candle_turnover_min": {
+            "default": 30000000,
+            "exclusiveMinimum": 0.0,
+            "title": "First Candle Turnover Min",
+            "type": "number"
+          },
+          "today_open_cross": {
+            "default": false,
+            "title": "Today Open Cross",
+            "type": "boolean"
+          },
+          "monthly_filter": {
+            "default": false,
+            "title": "Monthly Filter",
+            "type": "boolean"
+          },
+          "last_two_days_filter": {
+            "default": false,
+            "title": "Last Two Days Filter",
+            "type": "boolean"
+          },
+          "redwala_open_previous_close": {
+            "default": false,
+            "title": "Redwala Open Previous Close",
+            "type": "boolean"
+          },
+          "redwala_open_gap_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Redwala Open Gap Max",
+            "type": "number"
+          },
+          "redwala_open_tolerance": {
+            "default": false,
+            "title": "Redwala Open Tolerance",
+            "type": "boolean"
+          },
+          "redwala_open_tolerance_max": {
+            "default": 0.5,
+            "minimum": 0.0,
+            "title": "Redwala Open Tolerance Max",
+            "type": "number"
+          },
+          "pdhl_filter": {
+            "default": false,
+            "title": "Pdhl Filter",
+            "type": "boolean"
+          },
+          "pdhl_max": {
+            "default": 4.0,
+            "minimum": 0.0,
+            "title": "Pdhl Max",
+            "type": "number"
+          },
+          "possible_open_pre_close": {
+            "default": false,
+            "title": "Possible Open Pre Close",
+            "type": "boolean"
+          },
+          "possible_open_pre_close_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Possible Open Pre Close Max",
+            "type": "number"
+          },
+          "resistance_filter": {
+            "default": false,
+            "title": "Resistance Filter",
+            "type": "boolean"
+          },
+          "resistance_lookback": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 5,
+            "title": "Resistance Lookback",
+            "type": "integer"
+          },
+          "resistance_left": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Left",
+            "type": "integer"
+          },
+          "resistance_right": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Right",
+            "type": "integer"
+          },
+          "resistance_min_age": {
+            "default": 4,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Min Age",
+            "type": "integer"
+          },
+          "resistance_max_age": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Max Age",
+            "type": "integer"
+          },
+          "resistance_buffer": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Buffer",
+            "type": "number"
+          },
+          "resistance_pullback": {
+            "default": false,
+            "title": "Resistance Pullback",
+            "type": "boolean"
+          },
+          "resistance_pullback_min": {
+            "default": 3,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Pullback Min",
+            "type": "number"
+          }
+        },
+        "title": "VolumeFilterSettings",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "algo": {
+        "title": "Algo",
+        "type": "object"
+      },
+      "volume_filters": {
+        "$ref": "#/$defs/VolumeFilterSettings"
+      },
+      "running": {
+        "title": "Running",
+        "type": "boolean"
+      },
+      "connected": {
+        "title": "Connected",
+        "type": "boolean"
+      },
+      "status": {
+        "title": "Status",
+        "type": "string"
+      },
+      "stocks": {
+        "items": {
+          "$ref": "#/$defs/StockRow"
+        },
+        "title": "Stocks",
+        "type": "array"
+      },
+      "unresolved_symbols": {
+        "items": {
+          "type": "string"
+        },
+        "title": "Unresolved Symbols",
+        "type": "array"
+      },
+      "updated_at": {
+        "title": "Updated At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "running",
+      "connected",
+      "status",
+      "stocks",
+      "unresolved_symbols",
+      "updated_at"
+    ],
+    "title": "StateOut",
+    "type": "object"
+  },
+  "BacktestRow": {
+    "$defs": {
+      "DailyVolumeFilter": {
+        "properties": {
+          "twenty_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Twenty Day Closes",
+            "type": "array"
+          },
+          "last_two_day_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Last Two Day Candles",
+            "type": "array"
+          },
+          "five_day_highest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Five Day Highest Close"
+          },
+          "five_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Five Day Closes",
+            "type": "array"
+          },
+          "volume_limit": {
+            "default": 4.0,
+            "title": "Volume Limit",
+            "type": "number"
+          },
+          "session_date": {
+            "title": "Session Date",
+            "type": "string"
+          },
+          "previous_date": {
+            "title": "Previous Date",
+            "type": "string"
+          },
+          "previous_volume": {
+            "title": "Previous Volume",
+            "type": "integer"
+          },
+          "previous_close": {
+            "title": "Previous Close",
+            "type": "number"
+          },
+          "previous_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous High"
+          },
+          "previous_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Low"
+          },
+          "prior_close": {
+            "title": "Prior Close",
+            "type": "number"
+          },
+          "average": {
+            "title": "Average",
+            "type": "number"
+          },
+          "multiplier": {
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "percent_change": {
+            "title": "Percent Change",
+            "type": "number"
+          },
+          "samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "passes": {
+            "title": "Passes",
+            "type": "boolean"
+          },
+          "price_exception": {
+            "title": "Price Exception",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_date",
+          "previous_date",
+          "previous_volume",
+          "previous_close",
+          "prior_close",
+          "average",
+          "multiplier",
+          "percent_change",
+          "samples",
+          "passes",
+          "price_exception"
+        ],
+        "title": "DailyVolumeFilter",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "resistance_level": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Level"
+      },
+      "resistance_threshold": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Threshold"
+      },
+      "resistance_date": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Date"
+      },
+      "resistance_age": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Age"
+      },
+      "resistance_pullback_percent": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Pullback Percent"
+      },
+      "resistance_status": {
+        "default": "off",
+        "title": "Resistance Status",
+        "type": "string"
+      },
+      "resistance_break": {
+        "default": false,
+        "title": "Resistance Break",
+        "type": "boolean"
+      },
+      "resistance_break_open": {
+        "default": false,
+        "title": "Resistance Break Open",
+        "type": "boolean"
+      },
+      "resistance_break_open_candle": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break Open Candle"
+      },
+      "resistance_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Resistance Break At"
+      },
+      "first_candle_high_break": {
+        "default": false,
+        "title": "First Candle High Break",
+        "type": "boolean"
+      },
+      "first_candle_low_break": {
+        "default": false,
+        "title": "First Candle Low Break",
+        "type": "boolean"
+      },
+      "previous_day_low_break": {
+        "default": false,
+        "title": "Previous Day Low Break",
+        "type": "boolean"
+      },
+      "retest_break": {
+        "default": false,
+        "title": "Retest Break",
+        "type": "boolean"
+      },
+      "retest_break_at": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Break At"
+      },
+      "retest_status": {
+        "default": "waiting",
+        "title": "Retest Status",
+        "type": "string"
+      },
+      "retest_reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Retest Reason"
+      },
+      "daily_filter": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/DailyVolumeFilter"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      },
+      "redwala_gira": {
+        "default": false,
+        "title": "Redwala Gira",
+        "type": "boolean"
+      },
+      "qualifies_scan": {
+        "default": false,
+        "title": "Qualifies Scan",
+        "type": "boolean"
+      },
+      "first_candle_open": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Open"
+      },
+      "first_candle_close": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Close"
+      },
+      "first_candle_high": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle High"
+      },
+      "first_open_equals_high": {
+        "default": false,
+        "title": "First Open Equals High",
+        "type": "boolean"
+      },
+      "first_open_equals_low": {
+        "default": false,
+        "title": "First Open Equals Low",
+        "type": "boolean"
+      },
+      "previous_day_high_cross": {
+        "default": false,
+        "title": "Previous Day High Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross": {
+        "default": false,
+        "title": "Previous Day Low Cross",
+        "type": "boolean"
+      },
+      "previous_day_low_cross_second_candle": {
+        "default": false,
+        "title": "Previous Day Low Cross Second Candle",
+        "type": "boolean"
+      },
+      "data_warning": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Data Warning"
+      },
+      "symbol": {
+        "title": "Symbol",
+        "type": "string"
+      },
+      "name": {
+        "title": "Name",
+        "type": "string"
+      },
+      "security_id": {
+        "title": "Security Id",
+        "type": "string"
+      },
+      "target_date": {
+        "title": "Target Date",
+        "type": "string"
+      },
+      "first_candle_start": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Start"
+      },
+      "first_candle_color": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Color"
+      },
+      "second_candle_start": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Second Candle Start"
+      },
+      "second_candle_color": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Second Candle Color"
+      },
+      "first_candle_volume": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "First Candle Volume"
+      },
+      "first_candle_turnover": {
+        "default": 0.0,
+        "title": "First Candle Turnover",
+        "type": "number"
+      },
+      "opening_volume_average": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Opening Volume Average"
+      },
+      "opening_volume_samples": {
+        "items": {
+          "type": "object"
+        },
+        "title": "Opening Volume Samples",
+        "type": "array"
+      },
+      "volume_multiplier": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Volume Multiplier"
+      },
+      "opening_colors_match": {
+        "default": false,
+        "title": "Opening Colors Match",
+        "type": "boolean"
+      },
+      "possible_candidate": {
+        "default": false,
+        "title": "Possible Candidate",
+        "type": "boolean"
+      },
+      "candidate_reason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Candidate Reason"
+      },
+      "is_fno": {
+        "default": false,
+        "title": "Is Fno",
+        "type": "boolean"
+      },
+      "status": {
+        "default": "waiting",
+        "title": "Status",
+        "type": "string"
+      },
+      "error": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Error"
+      }
+    },
+    "required": [
+      "symbol",
+      "name",
+      "security_id",
+      "target_date"
+    ],
+    "title": "BacktestRow",
+    "type": "object"
+  },
+  "BacktestOut": {
+    "$defs": {
+      "BacktestRow": {
+        "properties": {
+          "resistance_level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Level"
+          },
+          "resistance_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Threshold"
+          },
+          "resistance_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Date"
+          },
+          "resistance_age": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Age"
+          },
+          "resistance_pullback_percent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Pullback Percent"
+          },
+          "resistance_status": {
+            "default": "off",
+            "title": "Resistance Status",
+            "type": "string"
+          },
+          "resistance_break": {
+            "default": false,
+            "title": "Resistance Break",
+            "type": "boolean"
+          },
+          "resistance_break_open": {
+            "default": false,
+            "title": "Resistance Break Open",
+            "type": "boolean"
+          },
+          "resistance_break_open_candle": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Break Open Candle"
+          },
+          "resistance_break_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Resistance Break At"
+          },
+          "first_candle_high_break": {
+            "default": false,
+            "title": "First Candle High Break",
+            "type": "boolean"
+          },
+          "first_candle_low_break": {
+            "default": false,
+            "title": "First Candle Low Break",
+            "type": "boolean"
+          },
+          "previous_day_low_break": {
+            "default": false,
+            "title": "Previous Day Low Break",
+            "type": "boolean"
+          },
+          "retest_break": {
+            "default": false,
+            "title": "Retest Break",
+            "type": "boolean"
+          },
+          "retest_break_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retest Break At"
+          },
+          "retest_status": {
+            "default": "waiting",
+            "title": "Retest Status",
+            "type": "string"
+          },
+          "retest_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Retest Reason"
+          },
+          "daily_filter": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DailyVolumeFilter"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "redwala_gira": {
+            "default": false,
+            "title": "Redwala Gira",
+            "type": "boolean"
+          },
+          "qualifies_scan": {
+            "default": false,
+            "title": "Qualifies Scan",
+            "type": "boolean"
+          },
+          "first_candle_open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Open"
+          },
+          "first_candle_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Close"
+          },
+          "first_candle_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle High"
+          },
+          "first_open_equals_high": {
+            "default": false,
+            "title": "First Open Equals High",
+            "type": "boolean"
+          },
+          "first_open_equals_low": {
+            "default": false,
+            "title": "First Open Equals Low",
+            "type": "boolean"
+          },
+          "previous_day_high_cross": {
+            "default": false,
+            "title": "Previous Day High Cross",
+            "type": "boolean"
+          },
+          "previous_day_low_cross": {
+            "default": false,
+            "title": "Previous Day Low Cross",
+            "type": "boolean"
+          },
+          "previous_day_low_cross_second_candle": {
+            "default": false,
+            "title": "Previous Day Low Cross Second Candle",
+            "type": "boolean"
+          },
+          "data_warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Data Warning"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "security_id": {
+            "title": "Security Id",
+            "type": "string"
+          },
+          "target_date": {
+            "title": "Target Date",
+            "type": "string"
+          },
+          "first_candle_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Start"
+          },
+          "first_candle_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Color"
+          },
+          "second_candle_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Second Candle Start"
+          },
+          "second_candle_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Second Candle Color"
+          },
+          "first_candle_volume": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "First Candle Volume"
+          },
+          "first_candle_turnover": {
+            "default": 0.0,
+            "title": "First Candle Turnover",
+            "type": "number"
+          },
+          "opening_volume_average": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Opening Volume Average"
+          },
+          "opening_volume_samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Opening Volume Samples",
+            "type": "array"
+          },
+          "volume_multiplier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Volume Multiplier"
+          },
+          "opening_colors_match": {
+            "default": false,
+            "title": "Opening Colors Match",
+            "type": "boolean"
+          },
+          "possible_candidate": {
+            "default": false,
+            "title": "Possible Candidate",
+            "type": "boolean"
+          },
+          "candidate_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Candidate Reason"
+          },
+          "is_fno": {
+            "default": false,
+            "title": "Is Fno",
+            "type": "boolean"
+          },
+          "status": {
+            "default": "waiting",
+            "title": "Status",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          }
+        },
+        "required": [
+          "symbol",
+          "name",
+          "security_id",
+          "target_date"
+        ],
+        "title": "BacktestRow",
+        "type": "object"
+      },
+      "DailyVolumeFilter": {
+        "properties": {
+          "twenty_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Twenty Day Closes",
+            "type": "array"
+          },
+          "last_two_day_candles": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Last Two Day Candles",
+            "type": "array"
+          },
+          "five_day_highest_close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Five Day Highest Close"
+          },
+          "five_day_closes": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Five Day Closes",
+            "type": "array"
+          },
+          "volume_limit": {
+            "default": 4.0,
+            "title": "Volume Limit",
+            "type": "number"
+          },
+          "session_date": {
+            "title": "Session Date",
+            "type": "string"
+          },
+          "previous_date": {
+            "title": "Previous Date",
+            "type": "string"
+          },
+          "previous_volume": {
+            "title": "Previous Volume",
+            "type": "integer"
+          },
+          "previous_close": {
+            "title": "Previous Close",
+            "type": "number"
+          },
+          "previous_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous High"
+          },
+          "previous_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Previous Low"
+          },
+          "prior_close": {
+            "title": "Prior Close",
+            "type": "number"
+          },
+          "average": {
+            "title": "Average",
+            "type": "number"
+          },
+          "multiplier": {
+            "title": "Multiplier",
+            "type": "number"
+          },
+          "percent_change": {
+            "title": "Percent Change",
+            "type": "number"
+          },
+          "samples": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Samples",
+            "type": "array"
+          },
+          "passes": {
+            "title": "Passes",
+            "type": "boolean"
+          },
+          "price_exception": {
+            "title": "Price Exception",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session_date",
+          "previous_date",
+          "previous_volume",
+          "previous_close",
+          "prior_close",
+          "average",
+          "multiplier",
+          "percent_change",
+          "samples",
+          "passes",
+          "price_exception"
+        ],
+        "title": "DailyVolumeFilter",
+        "type": "object"
+      },
+      "VolumeFilterSettings": {
+        "properties": {
+          "daily_volume_max": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Daily Volume Max",
+            "type": "number"
+          },
+          "minute_volume_min": {
+            "default": 4.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Minute Volume Min",
+            "type": "number"
+          },
+          "first_candle_turnover_min": {
+            "default": 30000000,
+            "exclusiveMinimum": 0.0,
+            "title": "First Candle Turnover Min",
+            "type": "number"
+          },
+          "today_open_cross": {
+            "default": false,
+            "title": "Today Open Cross",
+            "type": "boolean"
+          },
+          "monthly_filter": {
+            "default": false,
+            "title": "Monthly Filter",
+            "type": "boolean"
+          },
+          "last_two_days_filter": {
+            "default": false,
+            "title": "Last Two Days Filter",
+            "type": "boolean"
+          },
+          "redwala_open_previous_close": {
+            "default": false,
+            "title": "Redwala Open Previous Close",
+            "type": "boolean"
+          },
+          "redwala_open_gap_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Redwala Open Gap Max",
+            "type": "number"
+          },
+          "redwala_open_tolerance": {
+            "default": false,
+            "title": "Redwala Open Tolerance",
+            "type": "boolean"
+          },
+          "redwala_open_tolerance_max": {
+            "default": 0.5,
+            "minimum": 0.0,
+            "title": "Redwala Open Tolerance Max",
+            "type": "number"
+          },
+          "pdhl_filter": {
+            "default": false,
+            "title": "Pdhl Filter",
+            "type": "boolean"
+          },
+          "pdhl_max": {
+            "default": 4.0,
+            "minimum": 0.0,
+            "title": "Pdhl Max",
+            "type": "number"
+          },
+          "possible_open_pre_close": {
+            "default": false,
+            "title": "Possible Open Pre Close",
+            "type": "boolean"
+          },
+          "possible_open_pre_close_max": {
+            "default": 1.0,
+            "minimum": 0.0,
+            "title": "Possible Open Pre Close Max",
+            "type": "number"
+          },
+          "resistance_filter": {
+            "default": false,
+            "title": "Resistance Filter",
+            "type": "boolean"
+          },
+          "resistance_lookback": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 5,
+            "title": "Resistance Lookback",
+            "type": "integer"
+          },
+          "resistance_left": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Left",
+            "type": "integer"
+          },
+          "resistance_right": {
+            "default": 2,
+            "maximum": 10,
+            "minimum": 1,
+            "title": "Resistance Right",
+            "type": "integer"
+          },
+          "resistance_min_age": {
+            "default": 4,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Min Age",
+            "type": "integer"
+          },
+          "resistance_max_age": {
+            "default": 60,
+            "maximum": 252,
+            "minimum": 1,
+            "title": "Resistance Max Age",
+            "type": "integer"
+          },
+          "resistance_buffer": {
+            "default": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Buffer",
+            "type": "number"
+          },
+          "resistance_pullback": {
+            "default": false,
+            "title": "Resistance Pullback",
+            "type": "boolean"
+          },
+          "resistance_pullback_min": {
+            "default": 3,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Resistance Pullback Min",
+            "type": "number"
+          }
+        },
+        "title": "VolumeFilterSettings",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "warning_count": {
+        "default": 0,
+        "title": "Warning Count",
+        "type": "integer"
+      },
+      "scan_type": {
+        "default": "opening",
+        "title": "Scan Type",
+        "type": "string"
+      },
+      "volume_filters": {
+        "$ref": "#/$defs/VolumeFilterSettings"
+      },
+      "target_date": {
+        "title": "Target Date",
+        "type": "string"
+      },
+      "stocks": {
+        "items": {
+          "$ref": "#/$defs/BacktestRow"
+        },
+        "title": "Stocks",
+        "type": "array"
+      },
+      "tested_count": {
+        "title": "Tested Count",
+        "type": "integer"
+      },
+      "four_x_count": {
+        "title": "Four X Count",
+        "type": "integer"
+      },
+      "candidate_count": {
+        "title": "Candidate Count",
+        "type": "integer"
+      },
+      "qualified_count": {
+        "default": 0,
+        "title": "Qualified Count",
+        "type": "integer"
+      },
+      "redwala_count": {
+        "default": 0,
+        "title": "Redwala Count",
+        "type": "integer"
+      },
+      "retest_count": {
+        "default": 0,
+        "title": "Retest Count",
+        "type": "integer"
+      },
+      "error_count": {
+        "title": "Error Count",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "target_date",
+      "stocks",
+      "tested_count",
+      "four_x_count",
+      "candidate_count",
+      "error_count"
+    ],
+    "title": "BacktestOut",
+    "type": "object"
+  },
+  "PreopenSettings": {
+    "additionalProperties": false,
+    "properties": {
+      "universe": {
+        "default": "cash",
+        "enum": [
+          "cash",
+          "fno"
+        ],
+        "title": "Universe",
+        "type": "string"
+      },
+      "direction": {
+        "default": "gainers",
+        "enum": [
+          "gainers",
+          "losers",
+          "both"
+        ],
+        "title": "Direction",
+        "type": "string"
+      },
+      "min_turnover": {
+        "default": 0,
+        "minimum": 0.0,
+        "title": "Min Turnover",
+        "type": "number"
+      },
+      "max_turnover": {
+        "anyOf": [
+          {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Max Turnover"
+      },
+      "min_change": {
+        "default": 0,
+        "title": "Min Change",
+        "type": "number"
+      },
+      "max_change": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Max Change"
+      },
+      "top_n": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Top N"
+      }
+    },
+    "title": "PreopenSettings",
+    "type": "object"
+  },
+  "PreopenRequest": {
+    "$defs": {
+      "PreopenSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "universe": {
+            "default": "cash",
+            "enum": [
+              "cash",
+              "fno"
+            ],
+            "title": "Universe",
+            "type": "string"
+          },
+          "direction": {
+            "default": "gainers",
+            "enum": [
+              "gainers",
+              "losers",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "min_turnover": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Min Turnover",
+            "type": "number"
+          },
+          "max_turnover": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Turnover"
+          },
+          "min_change": {
+            "default": 0,
+            "title": "Min Change",
+            "type": "number"
+          },
+          "max_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Max Change"
+          },
+          "top_n": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Top N"
+          }
+        },
+        "title": "PreopenSettings",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "csv_text": {
+        "maxLength": 2000000,
+        "minLength": 1,
+        "title": "Csv Text",
+        "type": "string"
+      },
+      "filename": {
+        "default": "NSE pre-open.csv",
+        "maxLength": 255,
+        "title": "Filename",
+        "type": "string"
+      },
+      "settings": {
+        "$ref": "#/$defs/PreopenSettings"
+      }
+    },
+    "required": [
+      "csv_text"
+    ],
+    "title": "PreopenRequest",
+    "type": "object"
+  },
+  "AlgoSettings": {
+    "additionalProperties": false,
+    "properties": {
+      "mode": {
+        "default": "paper",
+        "enum": [
+          "paper",
+          "live"
+        ],
+        "title": "Mode",
+        "type": "string"
+      },
+      "first_direction": {
+        "default": "setup",
+        "enum": [
+          "setup",
+          "long",
+          "short"
+        ],
+        "title": "First Direction",
+        "type": "string"
+      },
+      "sizing": {
+        "default": "capital",
+        "enum": [
+          "quantity",
+          "capital"
+        ],
+        "title": "Sizing",
+        "type": "string"
+      },
+      "quantity": {
+        "default": 1,
+        "maximum": 100000,
+        "minimum": 1,
+        "title": "Quantity",
+        "type": "integer"
+      },
+      "capital": {
+        "default": 10000,
+        "exclusiveMinimum": 0.0,
+        "title": "Capital",
+        "type": "number"
+      },
+      "target_pct": {
+        "default": 4,
+        "exclusiveMinimum": 0.0,
+        "maximum": 100.0,
+        "title": "Target Pct",
+        "type": "number"
+      },
+      "stop_pct": {
+        "default": 1,
+        "exclusiveMaximum": 100.0,
+        "exclusiveMinimum": 0.0,
+        "title": "Stop Pct",
+        "type": "number"
+      },
+      "trailing": {
+        "default": false,
+        "title": "Trailing",
+        "type": "boolean"
+      },
+      "trailing_pct": {
+        "default": 1,
+        "exclusiveMaximum": 100.0,
+        "exclusiveMinimum": 0.0,
+        "title": "Trailing Pct",
+        "type": "number"
+      },
+      "ladder": {
+        "default": false,
+        "title": "Ladder",
+        "type": "boolean"
+      },
+      "pyramiding": {
+        "default": false,
+        "title": "Pyramiding",
+        "type": "boolean"
+      },
+      "max_adds": {
+        "default": 2,
+        "maximum": 20,
+        "minimum": 0,
+        "title": "Max Adds",
+        "type": "integer"
+      },
+      "reference": {
+        "default": "original",
+        "enum": [
+          "average",
+          "original"
+        ],
+        "title": "Reference",
+        "type": "string"
+      },
+      "reversal_size": {
+        "default": "initial",
+        "enum": [
+          "initial",
+          "accumulated"
+        ],
+        "title": "Reversal Size",
+        "type": "string"
+      },
+      "max_reversals": {
+        "default": 20,
+        "maximum": 100,
+        "minimum": 0,
+        "title": "Max Reversals",
+        "type": "integer"
+      },
+      "max_loss": {
+        "default": 10000,
+        "exclusiveMinimum": 0.0,
+        "title": "Max Loss",
+        "type": "number"
+      },
+      "square_off": {
+        "default": "15:15",
+        "title": "Square Off",
+        "type": "string"
+      },
+      "slippage_bps": {
+        "default": 5,
+        "maximum": 100.0,
+        "minimum": 0.0,
+        "title": "Slippage Bps",
+        "type": "number"
+      },
+      "fee_per_order": {
+        "default": 0,
+        "minimum": 0.0,
+        "title": "Fee Per Order",
+        "type": "number"
+      },
+      "order_timeout_seconds": {
+        "default": 15,
+        "maximum": 60,
+        "minimum": 5,
+        "title": "Order Timeout Seconds",
+        "type": "integer"
+      },
+      "max_quote_age_seconds": {
+        "default": 5,
+        "maximum": 30,
+        "minimum": 1,
+        "title": "Max Quote Age Seconds",
+        "type": "integer"
+      }
+    },
+    "title": "AlgoSettings",
+    "type": "object"
+  },
+  "AlgoStart": {
+    "$defs": {
+      "AlgoSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "paper",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "first_direction": {
+            "default": "setup",
+            "enum": [
+              "setup",
+              "long",
+              "short"
+            ],
+            "title": "First Direction",
+            "type": "string"
+          },
+          "sizing": {
+            "default": "capital",
+            "enum": [
+              "quantity",
+              "capital"
+            ],
+            "title": "Sizing",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "maximum": 100000,
+            "minimum": 1,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "capital": {
+            "default": 10000,
+            "exclusiveMinimum": 0.0,
+            "title": "Capital",
+            "type": "number"
+          },
+          "target_pct": {
+            "default": 4,
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Target Pct",
+            "type": "number"
+          },
+          "stop_pct": {
+            "default": 1,
+            "exclusiveMaximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Pct",
+            "type": "number"
+          },
+          "trailing": {
+            "default": false,
+            "title": "Trailing",
+            "type": "boolean"
+          },
+          "trailing_pct": {
+            "default": 1,
+            "exclusiveMaximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Trailing Pct",
+            "type": "number"
+          },
+          "ladder": {
+            "default": false,
+            "title": "Ladder",
+            "type": "boolean"
+          },
+          "pyramiding": {
+            "default": false,
+            "title": "Pyramiding",
+            "type": "boolean"
+          },
+          "max_adds": {
+            "default": 2,
+            "maximum": 20,
+            "minimum": 0,
+            "title": "Max Adds",
+            "type": "integer"
+          },
+          "reference": {
+            "default": "original",
+            "enum": [
+              "average",
+              "original"
+            ],
+            "title": "Reference",
+            "type": "string"
+          },
+          "reversal_size": {
+            "default": "initial",
+            "enum": [
+              "initial",
+              "accumulated"
+            ],
+            "title": "Reversal Size",
+            "type": "string"
+          },
+          "max_reversals": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Max Reversals",
+            "type": "integer"
+          },
+          "max_loss": {
+            "default": 10000,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Loss",
+            "type": "number"
+          },
+          "square_off": {
+            "default": "15:15",
+            "title": "Square Off",
+            "type": "string"
+          },
+          "slippage_bps": {
+            "default": 5,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Slippage Bps",
+            "type": "number"
+          },
+          "fee_per_order": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Fee Per Order",
+            "type": "number"
+          },
+          "order_timeout_seconds": {
+            "default": 15,
+            "maximum": 60,
+            "minimum": 5,
+            "title": "Order Timeout Seconds",
+            "type": "integer"
+          },
+          "max_quote_age_seconds": {
+            "default": 5,
+            "maximum": 30,
+            "minimum": 1,
+            "title": "Max Quote Age Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "AlgoSettings",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "symbol": {
+        "title": "Symbol",
+        "type": "string"
+      },
+      "setup": {
+        "enum": [
+          "possible",
+          "redwala"
+        ],
+        "title": "Setup",
+        "type": "string"
+      },
+      "settings": {
+        "$ref": "#/$defs/AlgoSettings"
+      }
+    },
+    "required": [
+      "symbol",
+      "setup"
+    ],
+    "title": "AlgoStart",
+    "type": "object"
+  },
+  "AlgoBacktest": {
+    "$defs": {
+      "AlgoSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "default": "paper",
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "first_direction": {
+            "default": "setup",
+            "enum": [
+              "setup",
+              "long",
+              "short"
+            ],
+            "title": "First Direction",
+            "type": "string"
+          },
+          "sizing": {
+            "default": "capital",
+            "enum": [
+              "quantity",
+              "capital"
+            ],
+            "title": "Sizing",
+            "type": "string"
+          },
+          "quantity": {
+            "default": 1,
+            "maximum": 100000,
+            "minimum": 1,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "capital": {
+            "default": 10000,
+            "exclusiveMinimum": 0.0,
+            "title": "Capital",
+            "type": "number"
+          },
+          "target_pct": {
+            "default": 4,
+            "exclusiveMinimum": 0.0,
+            "maximum": 100.0,
+            "title": "Target Pct",
+            "type": "number"
+          },
+          "stop_pct": {
+            "default": 1,
+            "exclusiveMaximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Pct",
+            "type": "number"
+          },
+          "trailing": {
+            "default": false,
+            "title": "Trailing",
+            "type": "boolean"
+          },
+          "trailing_pct": {
+            "default": 1,
+            "exclusiveMaximum": 100.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Trailing Pct",
+            "type": "number"
+          },
+          "ladder": {
+            "default": false,
+            "title": "Ladder",
+            "type": "boolean"
+          },
+          "pyramiding": {
+            "default": false,
+            "title": "Pyramiding",
+            "type": "boolean"
+          },
+          "max_adds": {
+            "default": 2,
+            "maximum": 20,
+            "minimum": 0,
+            "title": "Max Adds",
+            "type": "integer"
+          },
+          "reference": {
+            "default": "original",
+            "enum": [
+              "average",
+              "original"
+            ],
+            "title": "Reference",
+            "type": "string"
+          },
+          "reversal_size": {
+            "default": "initial",
+            "enum": [
+              "initial",
+              "accumulated"
+            ],
+            "title": "Reversal Size",
+            "type": "string"
+          },
+          "max_reversals": {
+            "default": 20,
+            "maximum": 100,
+            "minimum": 0,
+            "title": "Max Reversals",
+            "type": "integer"
+          },
+          "max_loss": {
+            "default": 10000,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Loss",
+            "type": "number"
+          },
+          "square_off": {
+            "default": "15:15",
+            "title": "Square Off",
+            "type": "string"
+          },
+          "slippage_bps": {
+            "default": 5,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Slippage Bps",
+            "type": "number"
+          },
+          "fee_per_order": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Fee Per Order",
+            "type": "number"
+          },
+          "order_timeout_seconds": {
+            "default": 15,
+            "maximum": 60,
+            "minimum": 5,
+            "title": "Order Timeout Seconds",
+            "type": "integer"
+          },
+          "max_quote_age_seconds": {
+            "default": 5,
+            "maximum": 30,
+            "minimum": 1,
+            "title": "Max Quote Age Seconds",
+            "type": "integer"
+          }
+        },
+        "title": "AlgoSettings",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "symbol": {
+        "title": "Symbol",
+        "type": "string"
+      },
+      "setup": {
+        "enum": [
+          "possible",
+          "redwala"
+        ],
+        "title": "Setup",
+        "type": "string"
+      },
+      "settings": {
+        "$ref": "#/$defs/AlgoSettings"
+      },
+      "target_date": {
+        "format": "date",
+        "title": "Target Date",
+        "type": "string"
+      },
+      "start_time": {
+        "default": "09:16",
+        "title": "Start Time",
+        "type": "string"
+      }
+    },
+    "required": [
+      "symbol",
+      "setup",
+      "target_date"
+    ],
+    "title": "AlgoBacktest",
+    "type": "object"
+  }
+}

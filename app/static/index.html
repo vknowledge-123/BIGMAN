@@ -293,6 +293,12 @@ OIL</textarea>
         </div>
         <p id="dashboardPriceHelp" class="muted-small">Default OFF, maximum Rs250. Live uses current LTP; Backtest uses the first candle's close. Price must be at or below your maximum; equality is included. Applies to every setup shown, together with the volume display filter. Missing prices are hidden when ON. Changes apply immediately and are remembered in this browser; active algos are unchanged.</p>
         <p id="dashboardPriceError" class="unresolved" role="alert" hidden></p>
+        <label class="open-cross-toggle">
+          <input id="dashboardCircuitEnabled" type="checkbox" role="switch" checked aria-describedby="dashboardCircuitHelp" />
+          Only circuit band ≥20% · Live
+        </label>
+        <p id="dashboardCircuitHelp" class="muted-small">Default ON. Live rows require a fresh, verified fixed circuit band of at least 20%. Both circuit prices must agree with the reference close. Lower bands, missing/stale or inconsistent limits, and known F&amp;O/dynamic bands are hidden. UC Away % and LC Away % still show distance from LTP. Sorting is unchanged. This browser remembers the toggle. Historical backtests are unaffected because historical circuit bands are unavailable.</p>
+        <p id="dashboardCircuitSummary" class="muted-small" role="status"></p>
       </section>
       <section id="liveView" class="view-pane">
         <div id="scanSummary" class="message">Prepare stocks before market open, then start Live before 9:15.</div>

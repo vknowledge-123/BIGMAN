@@ -136,6 +136,10 @@ class StockRow(QualificationFields):
     lower_circuit_distance_percent: float | None = None
     circuit_fetched_at: str | None = None
     circuit_error: str | None = None
+    circuit_reference_close: float | None = None
+    circuit_band_percent: float | None = None
+    circuit_band_status: str = "unverified"
+    circuit_band_eligible: bool = False
     symbol: str
     name: str | None = None
     security_id: str | None = None

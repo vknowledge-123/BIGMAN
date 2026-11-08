@@ -295,6 +295,12 @@ def test_start_subscribes_all_stocks_including_daily_failures_for_redwala(engine
         def start(self):
             pass
 
+        def join(self, timeout=None):
+            pass
+
+        def is_alive(self):
+            return False
+
     monkeypatch.setattr("app.dhan_scanner.MarketFeed", Feed)
     monkeypatch.setattr("app.dhan_scanner.DhanContext", lambda *_: object())
     monkeypatch.setattr("app.dhan_scanner.threading.Thread", Thread)

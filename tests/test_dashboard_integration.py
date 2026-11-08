@@ -8,6 +8,69 @@ from test_integration_workflows import integration
 from test_staged_scan import clock
 
 
+@pytest.mark.parametrize('width', [1440, 390])
+def test_opening_gap_badge_uses_backend_prices_without_requiring_high_break(integration, monkeypatch, width):
+    """Actual HTTP response models supply first open/previous close to both tables."""
+    from datetime import datetime
+    from app.dhan_scanner import Candle
+    from test_daily_filter import IST, SESSION, daily_data
+    pw = pytest.importorskip('playwright.sync_api')
+    ctx = integration
+    ctx.clock[0] = ctx.clock[0].replace(hour=10)
+    assert ctx.http.post('/api/symbols', json={'symbols_text': 'GREEN'}).status_code == 200
+    first_open = [207.0]
+    monkeypatch.setattr(ctx.broker, 'historical_daily_data', lambda *args:
+                        {'status': 'success', 'data': daily_data(close=200)})
+    def minutes(*args, **kwargs):
+        op = first_open[0]
+        candles = [Candle(datetime(2026, 9, day, 9, 15, tzinfo=IST), 100, 102, 99, 101, 100_000)
+                   for day in (25, 28, 30)]
+        candles.append(Candle(datetime(2026, 10, 1, 9, 15, tzinfo=IST), op, op+2, op, op+1, 500_000))
+        data = {key: [getattr(bar, key) for bar in candles] for key in ('open', 'high', 'low', 'close', 'volume')}
+        data['timestamp'] = [bar.start.timestamp() for bar in candles]
+        return {'status': 'success', 'data': data}
+    monkeypatch.setattr(ctx.broker, 'intraday_minute_data', minutes)
+    assert ctx.http.post('/api/cache-volume').status_code == 200
+    def route(r):
+        url = urlsplit(r.request.url)
+        if url.hostname != 'scanner.test':
+            r.abort()
+            return
+        response = ctx.http.request(r.request.method, url.path, content=r.request.post_data,
+                                    headers={'content-type': 'application/json'})
+        r.fulfill(status=response.status_code, body=response.content,
+                  content_type=response.headers.get('content-type', 'text/html'))
+    with pw.sync_playwright() as p:
+        browser = p.chromium.launch(channel='msedge', headless=True)
+        try:
+            page = browser.new_page(viewport={'width': width, 'height': 1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
+            errors = []
+            page.on('pageerror', lambda error: errors.append(str(error)))
+            page.route('**/*', route)
+            page.goto('http://scanner.test/')
+            for op, expected in ((207.0, 1), (193.0, 1), (207.01, 0)):
+                first_open[0] = op
+                assert ctx.http.post('/api/repair').status_code == 200
+                live = ctx.http.get('/api/state').json()
+                row = live['stocks'][0]
+                assert row['possible_candidate'] and not row['first_candle_high_break']
+                assert row['first_candle_open'] == op and row['daily_filter']['previous_close'] == 200
+                assert live['volume_filters']['possible_open_pre_close'] is False
+                page.evaluate('(s) => renderState(s)', live)
+                replay = ctx.http.post('/api/backtest', json={'target_date': SESSION.isoformat()})
+                assert replay.status_code == 200
+                assert replay.json()['stocks'][0]['possible_candidate']
+                page.evaluate('(r) => renderBacktest(r)', replay.json())
+                for table in ('#stockRows', '#backtestRows'):
+                    pw.expect(page.locator(table + ' .candidate-badge', has_text='under_3.5%')).to_have_count(expected)
+                    pw.expect(page.locator(table + ' .candidate-badge', has_text='First Candle High Break')).to_have_count(0)
+            assert not errors
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+        finally:
+            browser.close()
+
+
 def test_scanner_controls_cache_filters_and_backtest_in_browser(integration):
     pw = pytest.importorskip('playwright.sync_api')
     ctx = integration
@@ -28,6 +91,7 @@ def test_scanner_controls_cache_filters_and_backtest_in_browser(integration):
         browser = p.chromium.launch(channel='msedge', headless=True)
         try:
             page = browser.new_page(viewport={'width':1440, 'height':1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors = []
             page.on('pageerror', lambda e: errors.append(str(e)))
             page.route('**/*', route)
@@ -139,6 +203,7 @@ def test_dashboard_volume_display_filter_in_browser(integration):
         browser = p.chromium.launch(channel='msedge', headless=True)
         try:
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.route('**/*', route)

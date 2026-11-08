@@ -75,6 +75,7 @@ def test_browser_selected_stock_paper_exit_backtest(tmp_path, monkeypatch, hour,
         with pw.sync_playwright() as playwright:
             browser=playwright.chromium.launch(channel='msedge',headless=True)
             page=browser.new_page(viewport={'width':1440,'height':1000})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             errors=[]; page.on('pageerror',lambda error:errors.append(str(error)))
             page.route('https://unpkg.com/**',lambda r:r.abort())
             page.route('http://algo.test/**',route)

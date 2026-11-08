@@ -33,6 +33,8 @@ const els = {
   dashboardPriceEnabled: qs("#dashboardPriceEnabled"),
   dashboardPriceMax: qs("#dashboardPriceMax"),
   dashboardPriceError: qs("#dashboardPriceError"),
+  dashboardCircuitEnabled: qs("#dashboardCircuitEnabled"),
+  dashboardCircuitSummary: qs("#dashboardCircuitSummary"),
   liveTurnoverSummary: qs("#liveTurnoverSummary"),
   backtestTurnoverSummary: qs("#backtestTurnoverSummary"),
   saveVolumeFilters: qs("#saveVolumeFilters"),
@@ -210,10 +212,20 @@ function fmtDailyFilter(row) {
     <td title="${escapeHtml(daily.previous_date + exception)}">${fmtNumber(daily.percent_change, 2)}%</td>`;
 }
 
+function hasSmallOpeningGap(row) {
+  const opening = Number(row.first_candle_open);
+  const previousClose = Number(row.daily_filter?.previous_close);
+  if (!Number.isFinite(opening) || opening <= 0 || !Number.isFinite(previousClose) || previousClose <= 0) return false;
+  // Include exactly 3.5%, allowing only floating-point representation error.
+  const tolerance = Number.EPSILON * Math.max(opening, previousClose) * 4;
+  return Math.abs(opening - previousClose) <= previousClose * 0.035 + tolerance;
+}
+
 function fmtSignalBadge(row, reason) {
   const badges = [];
   if (row.awaiting_confirmation) return badges.join('') + `<span class="candidate-badge pending-badge" title="${reason}">${escapeHtml(row.provisional_setup || "Live match")} - Awaiting confirmation</span>`;
   if (row.possible_candidate) badges.push(`<span class="candidate-badge" title="${reason}">Possible candidate</span>`);
+  if (row.possible_candidate && hasSmallOpeningGap(row)) badges.push(`<span class="candidate-badge" title="Absolute difference between first candle open and previous trading day close is at most 3.5%. Independent of the Open / Previous Close filter setting.">under_3.5%</span>`);
   const resistanceDetail = escapeHtml(`Daily swing high ${fmtNumber(row.resistance_level, 2)} on ${row.resistance_date || '--'}; ${row.resistance_age ?? '--'} trading days old; breakout above ${fmtNumber(row.resistance_threshold, 2)}. Live uses current LTP; backtests use a completed green candle close.`);
   if (row.possible_candidate && row.resistance_break) badges.push(`<span class="candidate-badge" title="${resistanceDetail}">resistance break</span>`);
   if (row.possible_candidate && row.resistance_break_open) badges.push(`<span class="candidate-badge" title="${resistanceDetail} Candle ${row.resistance_break_open_candle}: open below resistance, crossed above within that candle; replay requires close above.">resistance_break_open · candle ${row.resistance_break_open_candle}</span>`);
@@ -370,6 +382,23 @@ function displayFilterDescription(backtest = false) {
   return filters.length ? filters.join("; ") : "display filters OFF";
 }
 
+const dashboardCircuitStorageKey = 'scanner.dashboardCircuit.v1';
+let dashboardCircuitEnabled = true;
+try {
+  const saved = JSON.parse(window.localStorage.getItem(dashboardCircuitStorageKey));
+  if (typeof saved === 'boolean') dashboardCircuitEnabled = saved;
+} catch (_) { /* Strict filter stays ON when no valid preference is saved. */ }
+els.dashboardCircuitEnabled.checked = dashboardCircuitEnabled;
+function matchesDashboardCircuit(row) {
+  return !dashboardCircuitEnabled || (row.circuit_band_eligible === true && row.circuit_band_status === 'verified'
+    && Number.isFinite(row.circuit_band_percent) && row.circuit_band_percent >= 20);
+}
+els.dashboardCircuitEnabled.addEventListener('change', () => {
+  dashboardCircuitEnabled = Boolean(els.dashboardCircuitEnabled.checked);
+  try { window.localStorage.setItem(dashboardCircuitStorageKey, JSON.stringify(dashboardCircuitEnabled)); } catch (_) {}
+  if (lastLiveState) renderState(lastLiveState);
+});
+
 function matchesSetup(row) {
   const selected = els.setupFilter.value || "all";
   if (selected === "possible") return row.possible_candidate || row.provisional_setup === "Possible candidate";
@@ -403,10 +432,16 @@ function renderState(state) {
   els.connectionBadge.className = `badge ${state.connected ? "live" : state.status.toLowerCase().includes("error") ? "error" : "neutral"}`;
   els.updatedAt.textContent = `Updated ${fmtTime(state.updated_at)}`;
   const setupStocks = state.stocks.filter((row) => (row.qualifies_scan === true || row.awaiting_confirmation) && matchesSetup(row));
-  const visibleStocks = setupStocks.filter(row => matchesDashboardVolume(row) && matchesDashboardPrice(row)).sort(compareLiveStocks);
+  const circuitStocks = setupStocks.filter(matchesDashboardCircuit);
+  const visibleStocks = circuitStocks.filter(row => matchesDashboardVolume(row) && matchesDashboardPrice(row)).sort(compareLiveStocks);
+  const lowerBands = setupStocks.filter(row => row.circuit_band_status === 'verified' && row.circuit_band_percent < 20).length;
+  const circuitHidden = setupStocks.length - circuitStocks.length;
+  els.dashboardCircuitSummary.textContent = dashboardCircuitEnabled
+    ? `Live circuit filter ON: ${circuitStocks.length} setups have verified bands >=20%; ${lowerBands} below 20%, ${circuitHidden - lowerBands} unverified/dynamic/stale hidden. Qualified Stocks counts all scanner matches. Backtests are not circuit-filtered.`
+    : 'Live circuit filter OFF. UC Away % and LC Away % remain available. Backtests are not circuit-filtered.';
   els.dashboardVolumeSummary.textContent = dashboardVolumeFilter.enabled || dashboardPriceFilter.enabled
     ? `Showing ${visibleStocks.length} of ${setupStocks.length} matching setups: ${displayFilterDescription()}. ${setupStocks.length - visibleStocks.length} hidden by display filters. Qualified Stocks counts all scanner matches.`
-    : `Dashboard volume filter OFF. Showing ${visibleStocks.length} matching setups.`;
+    : `Dashboard volume filter OFF. Showing ${visibleStocks.length} matching setups${dashboardCircuitEnabled ? ' after the circuit-band filter' : ''}.`;
   const confirmedCount = state.stocks.filter((row) => row.qualifies_scan === true).length;
   const awaitingCount = state.stocks.filter((row) => row.awaiting_confirmation).length;
   els.stockCount.textContent = `${confirmedCount}/${state.stocks.length}`;
@@ -425,7 +460,9 @@ function renderState(state) {
   els.topChange.textContent = top && top.percent_change !== null ? `${fmtNumber(top.percent_change, 2)}%` : "--";
 
   if (!visibleStocks.length) {
-    const message = dashboardPriceFilter.enabled && setupStocks.length
+    const message = dashboardCircuitEnabled && setupStocks.length && !circuitStocks.length
+      ? 'No matching setups have a verified circuit band of at least 20% yet. Lower bands and unknown/dynamic/stale limits are hidden; waiting for fresh circuit quotes where needed.'
+      : dashboardPriceFilter.enabled && setupStocks.length
       ? `No setups match the display filters: ${displayFilterDescription()}. Adjust the limits or turn the display filters OFF.`
       : dashboardVolumeFilter.enabled && setupStocks.length
       ? `No setups have first-candle volume strictly above ${fmtInt(dashboardVolumeFilter.minimum)} shares. Lower the dashboard threshold or turn this display filter OFF.`

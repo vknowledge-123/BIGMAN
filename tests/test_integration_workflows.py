@@ -218,6 +218,7 @@ def test_browser_real_api_settings_cache_backtest_and_badges(integration, width)
         browser = p.chromium.launch(channel='msedge', headless=True)
         try:
             page = browser.new_page(viewport={'width':width, 'height':950})
+            page.add_init_script("localStorage.setItem('scanner.dashboardCircuit.v1', 'false')")  # Unrelated fixtures lack circuit quotes.
             page.on('pageerror', lambda error: errors.append(str(error)))
             def route(request):
                 url = urlsplit(request.request.url)
