@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Dhan Turnover Scanner</title>
     <link rel="stylesheet" href="/static/styles.css" />
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
+    <script src="/static/account.js" defer></script>
     <script src="/static/app.js" defer></script>
     <script src="/static/preopen.js" defer></script>
+    <script src="/static/shared-admin.js" defer></script>
   </head>
   <body>
     <main class="shell">
+      <div class="admin-account"><strong id="accountName">Administrator</strong><button id="logoutButton" type="button" class="secondary">Sign out</button></div><p id="accountError" class="unresolved" role="status"></p>
       <header class="topbar">
         <div>
           <p class="eyebrow">NSE Equity</p>
@@ -270,7 +272,8 @@ OIL</textarea>
 
       </div>
       <section aria-label="Display filters for Live and Backtest">
-        <h3>Display Filters - Live &amp; Backtest</h3>
+        <h3>Shared Display Filters - Admin controlled</h3>
+        <p id="sharedDisplayStatus" class="muted-small" role="status">Loading shared settings...</p><button type="button" id="retryDisplaySave" class="secondary" hidden>Retry saving display settings</button>
         <div class="filter-fields">
           <label class="open-cross-toggle">
             <input id="dashboardVolumeEnabled" type="checkbox" role="switch" aria-describedby="dashboardVolumeHelp" />
@@ -280,7 +283,7 @@ OIL</textarea>
             <input id="dashboardVolumeMin" type="number" min="0" step="1" value="100000" required />
           </label>
         </div>
-        <p id="dashboardVolumeHelp" class="muted-small">Display filter for Live and Backtest, including Redwala. Default OFF. When ON, first-candle volume must be strictly above the threshold; equality and missing volume are excluded. Breakout badges remain first, with each group sorted by first-candle turnover, highest first. Changes apply immediately and are remembered in this browser. Scanner qualification and active algos are unchanged; backtest rows are filtered immediately without rerunning.</p>
+        <p id="dashboardVolumeHelp" class="muted-small">Display filter for Live and Backtest, including Redwala. Default OFF. When ON, first-candle volume must be strictly above the threshold; equality and missing volume are excluded. Breakout badges remain first, with each group sorted by first-candle turnover, highest first. Changes apply immediately and are saved for every dashboard. Scanner qualification and active algos are unchanged; backtest rows are filtered immediately without rerunning.</p>
         <p id="dashboardVolumeError" class="unresolved" role="alert" hidden></p>
         <div class="filter-fields">
           <label class="open-cross-toggle">
@@ -291,13 +294,13 @@ OIL</textarea>
             <input id="dashboardPriceMax" type="number" min="0" step="any" value="250" required />
           </label>
         </div>
-        <p id="dashboardPriceHelp" class="muted-small">Default OFF, maximum Rs250. Live uses current LTP; Backtest uses the first candle's close. Price must be at or below your maximum; equality is included. Applies to every setup shown, together with the volume display filter. Missing prices are hidden when ON. Changes apply immediately and are remembered in this browser; active algos are unchanged.</p>
+        <p id="dashboardPriceHelp" class="muted-small">Default OFF, maximum Rs250. Live uses current LTP; Backtest uses the first candle's close. Price must be at or below your maximum; equality is included. Applies to every setup shown, together with the volume display filter. Missing prices are hidden when ON. Changes apply immediately and are saved for every dashboard; active algos are unchanged.</p>
         <p id="dashboardPriceError" class="unresolved" role="alert" hidden></p>
         <label class="open-cross-toggle">
           <input id="dashboardCircuitEnabled" type="checkbox" role="switch" checked aria-describedby="dashboardCircuitHelp" />
           Only circuit band ≥20% · Live
         </label>
-        <p id="dashboardCircuitHelp" class="muted-small">Default ON. Live rows require a fresh, verified fixed circuit band of at least 20%. Both circuit prices must agree with the reference close. Lower bands, missing/stale or inconsistent limits, and known F&amp;O/dynamic bands are hidden. UC Away % and LC Away % still show distance from LTP. Sorting is unchanged. This browser remembers the toggle. Historical backtests are unaffected because historical circuit bands are unavailable.</p>
+        <p id="dashboardCircuitHelp" class="muted-small">Default ON. Live rows require a fresh, verified fixed circuit band of at least 20%. Both circuit prices must agree with the reference close. Lower bands, missing/stale or inconsistent limits, and known F&amp;O/dynamic bands are hidden. UC Away % and LC Away % still show distance from LTP. Sorting is unchanged. The server saves this toggle for every dashboard. Historical backtests are unaffected because historical circuit bands are unavailable.</p>
         <p id="dashboardCircuitSummary" class="muted-small" role="status"></p>
       </section>
       <section id="liveView" class="view-pane">
@@ -389,6 +392,7 @@ OIL</textarea>
         </div>
       </section>
 
+      <section class="panel" id="membersPanel"><div class="panel-head"><h2>Member access</h2><button id="refreshMembers" class="secondary" type="button">Refresh accounts</button></div><p class="muted-small">Approve new members after authenticator setup. Suspending an account immediately revokes its sessions.</p><p id="membersMessage" role="status"></p><div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Access</th><th>Authenticator</th><th>Action</th></tr></thead><tbody id="memberAccounts"></tbody></table></div></section>
       <section id="algoPanel" class="algo-panel" aria-labelledby="algoTitle">
         <h2 id="algoTitle">Selected-stock Algo &middot; Paper / Live / Backtest</h2>
         <p>Choose a confirmed Possible Candidate or Redwala using its Start Algo button. Select which ladder starts first below. Each session keeps the settings selected at start.</p>

@@ -1,8 +1,16 @@
 # Dhan Turnover Scanner — detailed project and rebuild specification
 
-Documentation date: **8 November 2026**, India Standard Time. This describes the source files in the main project at the time of inspection, including its uncommitted changes. It is an implementation specification, not a claim that every scenario has been tested against a live broker.
+Documentation date: **11 November 2026**, India Standard Time. This describes the source files in the main project at the time of inspection, including its uncommitted changes. It is an implementation specification, not a claim that every scenario has been tested against a live broker.
 
 Read this file first when rebuilding the application. The accompanying `INTERFACES_AND_SOURCE_MAP.md`, `MODEL_SCHEMAS.json`, `DEFAULT_SETTINGS.json`, `TEST_INVENTORY.md`, and `SOURCE_MANIFEST.json` provide exact structural details. `AI_REBUILD_PROMPT.md` supplies a reusable instruction for another AI tool. No actual credentials, uploaded customer CSVs, caches, positions, orders or account records are included.
+
+## Admin-hosted accounts update
+
+The application now includes email/password/TOTP authentication for administrators and members, signup with mandatory admin approval, read-only member dashboards, server-side role and CSRF enforcement, and shared display preferences. See [MEMBER_HOSTING.md](MEMBER_HOSTING.md) for the complete account, API-security, data-storage, setup, hosting and recovery specification. These requirements are part of any rebuild. Dhan subscriptions and trading stay in one administrator-hosted process. Members cannot invoke scanner controls, change filters, inspect credentials, run backtests or trade.
+
+## HTTP security update
+
+Implement [SECURITY.md](SECURITY.md) as part of the rebuild: bounded HTTP input processing, layered request/password/OTP budgets, output escaping and browser security headers, protected OpenAPI, generic unexpected errors and input-free validation errors. The dependency pins in requirements.txt supersede earlier version examples in this report. The public launcher health probe is /health; /openapi.json requires an active administrator. Public Swagger/ReDoc pages are disabled.
 
 ## Contents
 
@@ -147,7 +155,7 @@ For direct non-reloading startup:
 
 `--reload` and the development PowerShell scripts are for development, not real execution. Close/verify active positions before stopping or changing the running application. On restart, unfinished algo sessions pause; restarting the server does not itself flatten positions.
 
-Keep the server window open. Binding to localhost is significant: the application has no general web-user authentication or role model. Do not treat it as ready for public network exposure.
+Keep the server window open. Public hosting requires the configured HTTPS origin and a reverse proxy; see MEMBER_HOSTING.md. Both administrators and members require password plus TOTP login. Use a single worker without automatic reload.
 
 When sharing a copy, exclude credentials and all contents of `data/` that identify accounts, customer uploads or trading history. Back up private runtime data separately. Static asset URLs include content hashes, and HTML/API responses disable caching to reduce frontend/backend version mismatch.
 
@@ -481,7 +489,7 @@ Qualified counts count each matching stock once even if more than one setup is t
 
 ### 10.3 Local display filters
 
-These do not alter backend qualification, history preparation or an active algo. They apply immediately to existing Live and Backtest results without a rerun. Store preferences in browser localStorage when available; invalid drafts retain the last valid configuration.
+These do not alter backend qualification, history preparation or an active algo. They apply immediately to existing Live and Backtest results without a rerun. Store shared preferences in auth.sqlite3; browser localStorage is not authoritative. Only administrators can edit them. Invalid drafts retain the last valid configuration.
 
 | Filter | Default | Live input | Backtest input | Comparison |
 |---|---|---|---|---|
@@ -771,7 +779,7 @@ Example: last cumulative gross ₹118.50, 18 filled orders at ₹7 each → cost
 
 ## 17. API and data contracts
 
-All APIs are local JSON routes. FastAPI/Pydantic validate types/ranges; malformed bodies generally receive 422. Business validation maps to 400 on designated routes; some scanner/cache failures return 500. Mutations are POST, state/config GET. `/api/*` responses carry `Cache-Control: no-store`. There is no remote user authentication layer.
+All APIs are local JSON routes. FastAPI/Pydantic validate types/ranges; malformed bodies generally receive 422. Business validation maps to 400 on designated routes; some scanner/cache failures return 500. Mutations are POST, state/config GET. `/api/*` responses carry `Cache-Control: no-store`. All existing scanner, configuration, CSV, cache, backtest and algo APIs require an active admin session; mutations also require its CSRF token. /api/member/state requires an approved authenticated account and returns only whitelisted, filtered result fields. /api/auth/* implements password/TOTP login, signup, session identity and logout; /api/admin/users manages approval/suspension; /api/display-settings stores the shared display preferences. See MEMBER_HOSTING.md for exact security and operational behavior.
 
 | Method/path | Purpose / payload |
 |---|---|

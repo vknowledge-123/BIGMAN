@@ -4,6 +4,8 @@ Start with **PROJECT_SPECIFICATION.md**. It explains the full product, formulas,
 
 | File | Purpose |
 |---|---|
+| `SECURITY.md` | Threat protections, exact limits, dependencies, deployment and maintenance |
+| `MEMBER_HOSTING.md` | Account roles, TOTP, admin approval, shared settings, hosting and recovery |
 | `PROJECT_SPECIFICATION.md` | Main detailed report; best single file to upload to an AI |
 | `AI_REBUILD_PROMPT.md` | Copy-and-paste instructions for rebuilding the application |
 | `INTERFACES_AND_SOURCE_MAP.md` | Routes, model fields, module/function map and frontend controls |
@@ -16,7 +18,7 @@ Start with **PROJECT_SPECIFICATION.md**. It explains the full product, formulas,
 | `build_reference.py` | Regenerates structural sidecars from the source project |
 | `DOCUMENTATION_VALIDATION.md` | Checks performed on the documentation pack |
 
-The report describes the main source on **8 November 2026**, including the completed verified circuit-band >=20% live display filter. Section21 explains its implementation, default-ON toggle and historical-backtest exclusion.
+The report describes the main source on **11 November 2026**, including the completed verified circuit-band >=20% live display filter. Section21 explains its implementation, default-ON toggle and historical-backtest exclusion.
 
 For another AI tool, upload the main report and the rebuild prompt. Add the JSON schemas, defaults, F&O list and test inventory when attachments allow. ZIP files should be extracted first if the receiving tool cannot inspect archives.
 

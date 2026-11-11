@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from hashlib import sha256
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from .security import SecurityMiddleware
 
 from .dhan_scanner import ScannerEngine, parse_symbols
 from .schemas import (
@@ -20,6 +22,9 @@ from .schemas import (
     VolumeFilterSettings,
 )
 from .storage import ConfigStore
+from . import access
+from .accounts import AccountError
+from .member_view import PublishedDashboard
 from .algo_strategy import AlgoSettings, AlgoStart, AlgoBacktest
 from .preopen import PreopenRequest, PreopenSettings, filter_csv
 
@@ -40,24 +45,74 @@ async def lifespan(_app: FastAPI):
     scanner.stop()
 
 
-app = FastAPI(title="Dhan Turnover Scanner", lifespan=lifespan)
+app = FastAPI(title="Dhan Turnover Scanner", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+admin_api = APIRouter(dependencies=[Depends(access.require_admin)])
+published = PublishedDashboard()
+app.include_router(access.router)
+
+
+@app.exception_handler(AccountError)
+async def account_error(request, exc):
+    return JSONResponse({"detail":str(exc)},status_code=exc.status,
+                        headers={"Retry-After":"900"} if exc.status==429 else None)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error(request, exc):
+    # Pydantic includes submitted input and context by default, including passwords.
+    return JSONResponse({"detail":[{k:e[k] for k in ("loc","msg","type") if k in e}
+                                   for e in exc.errors()]}, status_code=422)
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request, exc):
+    # Do not echo exception text, account material or broker payloads to a browser.
+    import logging
+    logging.getLogger("scanner.security").error("Unhandled request error: %s", type(exc).__name__)
+    return JSONResponse({"detail":"An internal error occurred. Contact the administrator."},status_code=500,
+                        headers={"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"})
+
+
+@app.get('/health')
+def health():
+    return {"info":{"title":"Dhan Turnover Scanner"}}
+
+
+@app.get('/openapi.json', dependencies=[Depends(access.require_admin)])
+def protected_schema():
+    return app.openapi()
 
 
 @app.middleware("http")
 async def prevent_cached_api_state(request, call_next):
+    if request.url.path.startswith("/static/") and request.url.path.lower().endswith(".html"):
+        return JSONResponse({"detail":"Not found"},status_code=404)
     response = await call_next(request)
-    if request.url.path.startswith("/api/"):
+    if request.url.path.startswith("/api/") or request.url.path in ("/", "/login", "/signup"):
         response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    if request.url.path not in ("/docs", "/redoc", "/docs/oauth2-redirect"):
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    if request.url.scheme == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000"
     return response
+
+app.add_middleware(SecurityMiddleware)
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/")
-def dashboard() -> HTMLResponse:
+def dashboard(user=Depends(access.optional_user)):
+    if not user:
+        return RedirectResponse("/login",status_code=303)
+    if user["role"] != "admin":
+        return HTMLResponse((STATIC_DIR / "member.html").read_text(encoding="utf-8"))
     # HTML and controls must stay in sync after updates, including Drive copies.
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    for filename in ("app.js", "styles.css", "preopen.js"):
+    for filename in ("app.js", "styles.css", "preopen.js", "account.js", "shared-admin.js"):
         if f'"/static/{filename}"' not in html:
             continue
         version = sha256((STATIC_DIR / filename).read_bytes()).hexdigest()[:16]
@@ -65,11 +120,12 @@ def dashboard() -> HTMLResponse:
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/config", response_model=ConfigOut)
+@admin_api.get("/api/config", response_model=ConfigOut)
 def get_config() -> ConfigOut:
     config = store.load()
     return ConfigOut(
         volume_filters=config.volume_filters,
+        display_filters=access.accounts.display(),
         has_credentials=bool(config.client_id and config.access_token),
         client_id=config.client_id,
         symbols_text="\n".join(config.symbols),
@@ -78,12 +134,12 @@ def get_config() -> ConfigOut:
     )
 
 
-@app.post("/api/volume-filters", response_model=MessageOut)
+@admin_api.post("/api/volume-filters", response_model=MessageOut)
 def save_volume_filters(payload: VolumeFilterSettings) -> MessageOut:
     return MessageOut(ok=True, message=scanner.update_volume_filters(payload))
 
 
-@app.post("/api/credentials", response_model=MessageOut)
+@admin_api.post("/api/credentials", response_model=MessageOut)
 def save_credentials(payload: CredentialsIn) -> MessageOut:
     try:
         store.update_credentials(payload.client_id, payload.access_token)
@@ -92,7 +148,7 @@ def save_credentials(payload: CredentialsIn) -> MessageOut:
     return MessageOut(ok=True, message="Credentials saved; reused automatically after browser refresh")
 
 
-@app.post("/api/symbols", response_model=MessageOut)
+@admin_api.post("/api/symbols", response_model=MessageOut)
 def save_symbols(payload: SymbolsIn) -> MessageOut:
     symbols = parse_symbols(payload.symbols_text)
     if not symbols:
@@ -110,12 +166,12 @@ def save_symbols(payload: SymbolsIn) -> MessageOut:
     return MessageOut(ok=True, message=f"Saved {len(symbols)} symbol(s)")
 
 
-@app.get("/api/preopen")
+@admin_api.get("/api/preopen")
 def get_preopen_import():
     return {"saved": store.load_preopen_import(), "defaults": PreopenSettings().model_dump()}
 
 
-@app.post("/api/preopen/preview")
+@admin_api.post("/api/preopen/preview")
 def preview_preopen(payload: PreopenRequest):
     try:
         return filter_csv(payload)
@@ -123,7 +179,7 @@ def preview_preopen(payload: PreopenRequest):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/api/preopen/apply")
+@admin_api.post("/api/preopen/apply")
 def apply_preopen(payload: PreopenRequest):
     result = preview_preopen(payload)
     if not result["symbols"]:
@@ -140,7 +196,7 @@ def apply_preopen(payload: PreopenRequest):
                        + (f" {len(unresolved)} symbol(s) could not be resolved." if unresolved else "")}
 
 
-@app.post("/api/cache", response_model=MessageOut)
+@admin_api.post("/api/cache", response_model=MessageOut)
 def cache_data() -> MessageOut:
     try:
         cached = scanner.cache_previous_closes()
@@ -149,7 +205,7 @@ def cache_data() -> MessageOut:
     return MessageOut(ok=True, message=f"Cached previous close for {len(cached)} stock(s)")
 
 
-@app.post("/api/cache-volume", response_model=MessageOut)
+@admin_api.post("/api/cache-volume", response_model=MessageOut)
 def cache_volume_average() -> MessageOut:
     try:
         cached = scanner.cache_opening_volume_averages()
@@ -161,7 +217,7 @@ def cache_volume_average() -> MessageOut:
     )
 
 
-@app.post("/api/backtest", response_model=BacktestOut)
+@admin_api.post("/api/backtest", response_model=BacktestOut)
 def run_backtest(payload: BacktestIn) -> dict:
     try:
         if payload.volume_filters is not None:
@@ -175,7 +231,7 @@ def run_backtest(payload: BacktestIn) -> dict:
 
 
 
-@app.post("/api/start", response_model=MessageOut)
+@admin_api.post("/api/start", response_model=MessageOut)
 def start_scan() -> MessageOut:
     try:
         scanner.start()
@@ -184,13 +240,13 @@ def start_scan() -> MessageOut:
     return MessageOut(ok=True, message="Live scan started")
 
 
-@app.post("/api/stop", response_model=MessageOut)
+@admin_api.post("/api/stop", response_model=MessageOut)
 def stop_scan() -> MessageOut:
     scanner.stop()
     return MessageOut(ok=True, message="Live scan stopped")
 
 
-@app.post("/api/repair", response_model=MessageOut)
+@admin_api.post("/api/repair", response_model=MessageOut)
 def repair_missing() -> MessageOut:
     try:
         repaired = scanner.repair_missing_candles()
@@ -206,18 +262,18 @@ def repair_missing() -> MessageOut:
     )
 
 
-@app.get("/api/state", response_model=StateOut)
+@admin_api.get("/api/state", response_model=StateOut)
 def get_state() -> dict:
-    return {**scanner.snapshot(), "algo": scanner.algo.snapshot()}
+    return {**scanner.snapshot(), "algo": scanner.algo.snapshot(), "display_filters": access.accounts.display()}
 
 
-@app.post('/api/algo/settings', response_model=MessageOut)
+@admin_api.post('/api/algo/settings', response_model=MessageOut)
 def save_algo_settings(payload: AlgoSettings):
     scanner.algo.save_settings(payload)
     return MessageOut(ok=True, message='Algo defaults saved; active sessions keep their original settings')
 
 
-@app.post('/api/algo/start')
+@admin_api.post('/api/algo/start')
 def start_algo(payload: AlgoStart):
     try:
         session_id = scanner.algo.start(payload)
@@ -226,7 +282,7 @@ def start_algo(payload: AlgoStart):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post('/api/algo/{session_id}/exit', response_model=MessageOut)
+@admin_api.post('/api/algo/{session_id}/exit', response_model=MessageOut)
 def exit_algo(session_id: str):
     try:
         scanner.algo.command(session_id, 'exit')
@@ -235,7 +291,7 @@ def exit_algo(session_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post('/api/algo/{session_id}/resume', response_model=MessageOut)
+@admin_api.post('/api/algo/{session_id}/resume', response_model=MessageOut)
 def resume_algo(session_id: str):
     try:
         scanner.algo.command(session_id, 'resume')
@@ -244,9 +300,24 @@ def resume_algo(session_id: str):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post('/api/algo/backtest')
+@admin_api.post('/api/algo/backtest')
 def backtest_algo(payload: AlgoBacktest):
     try:
         return scanner.algo.backtest(payload)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+app.include_router(admin_api)
+
+
+@app.get('/login', response_class=HTMLResponse)
+@app.get('/signup', response_class=HTMLResponse)
+def auth_page(request: Request):
+    access.transport(request)
+    return HTMLResponse((STATIC_DIR/'auth.html').read_text(encoding='utf-8'))
+
+
+@app.get('/api/member/state')
+def member_state(_=Depends(access.require_member)):
+    return published.snapshot(scanner, access.accounts.display())

@@ -1,23 +1,20 @@
-# Documentation validation
+# Documentation and implementation validation
 
-Date: 8 November 2026 (IST).
+Date: 11 November 2026 (IST).
 
-The following checks passed for this documentation pack:
+The account/member change was tested in an isolated checkout with synthetic market data and no real orders:
 
-- All 17 exported JSON model schemas match the current model definitions.
-- Scanner, algo and CSV default exports round-trip through Pydantic and match source defaults.
-- All 20 application routes are unique and documented in the main report.
-- The static F&O export contains the same 210 symbols as the source.
-- SHA-256 hashes match all 59 source files in the manifest after document generation.
-- All JSON sidecars parse; the report's JSON request example validates as scanner settings.
-- The report has 21 numbered main sections and balanced fenced code blocks.
-- Numerical examples were checked for crore conversion, UC/LC distances, net P&L and combined reversal quantity.
-- The ZIP contains only the explicitly selected documentation files and regeneration script, with no runtime data, credentials, cache databases, order journals or uploaded customer CSVs.
+- Full Python suite: **991 passed** in 125.03 seconds.
+- Dashboard JavaScript unit checks: **46 passed**.
+- Standalone JavaScript browser workflow: desktop/mobile live and backtest rendering passed.
+- Real authentication desktop/mobile flows: signup, TOTP enrollment, pending approval, admin login and approval, shared display changes, reload persistence and suspension passed.
+- Final security/browser recheck after blocking direct static HTML access: **9 passed**.
+- Existing strategy tests explicitly receive a test-only admin dependency override. Account tests use production dependencies and cover every admin route's denial of anonymous/member requests.
+- A concurrent historical-cache initialization lock failure found during regression was fixed by sharing the per-database lock between ConfigStore instances.
+- Shared-settings refresh and rapid-change save races were fixed; the browser protects unsaved changes and exposes retry failures.
 
-The test inventory records 296 Python test-function declarations and 46 named JavaScript tests. Parameterization can create additional cases. These numbers do not represent a fresh test run or pass count.
+Structural sidecars are regenerated from the final source: 22 model schemas, 32 routes, and the source manifest. MEMBER_HOSTING.md describes operational setup and the boundaries of this implementation. Documentation contains no runtime account database, encryption key, broker credentials, order journal, or uploaded CSV data.
 
-The original documentation-only checks did not execute the application suite. The subsequent circuit-band implementation was tested in an isolated checkout: **982 Python tests and 46 dashboard JavaScript checks passed**. All application and test source contents match the tested checkout, allowing for existing LF/CRLF line endings. The 16 deployed files were also byte-verified at copying. Browser integration used real FastAPI handlers and synthetic quotes at desktop and mobile widths.
+These tests do not constitute a live-market fill test, public-server deployment, independent security audit, or high-concurrency benchmark.
 
-The verified circuit-band >=20% live display filter is now implemented and documented in section 21. No server was responding on port 8000 when the change was deployed. No real broker order was submitted, and runtime data was preserved. See `../circuit-band-validation-2026-11-08.md` for validation scope.
-
-To regenerate structural exports, run `py docs/project-reference/build_reference.py` from the source project root. The narrative report must be reviewed separately after behavior changes.
+Security update verification: **1,013 Python tests**, **46 JavaScript unit checks**, and standalone desktop/mobile browser workflows passed with the upgraded dependency set. The 22 new adversarial cases include persistent password/OTP budgets, bounded hash work, host/origin rejection, streaming/body/parser limits, SQL injection, stored XSS and private-file probes. `pip check` found no broken requirements; `pip-audit -r requirements.txt` reported zero known vulnerabilities across 42 resolved dependencies. See SECURITY.md for exact protections and residual deployment requirements.

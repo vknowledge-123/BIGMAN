@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Welcome · Turnover Scanner</title><link rel="stylesheet" href="/static/access.css"><script src="/static/auth.js" defer></script></head>
+<body class="auth-page"><main class="auth-layout">
+<aside class="brand-panel"><a class="brand" href="/login"><span class="brand-mark">↗</span> TURNOVER<span class="brand-light">SCANNER</span></a>
+<div class="brand-story"><span class="overline">NSE EQUITY · LIVE INSIGHTS</span><h1>A clearer view<br>of the opening move.</h1><p>Possible Candidates and Redwala, brought together in one focused market dashboard.</p>
+<div class="market-art" aria-hidden="true"><div class="chart-grid"></div><svg viewBox="0 0 500 180"><path d="M0 142 L45 138 L78 148 L114 112 L147 121 L182 83 L216 99 L250 72 L282 89 L318 44 L350 53 L389 28 L425 39 L470 8 L500 16" fill="none" stroke="#70e1be" stroke-width="3"/><path d="M0 142 L45 138 L78 148 L114 112 L147 121 L182 83 L216 99 L250 72 L282 89 L318 44 L350 53 L389 28 L425 39 L470 8 L500 16 V180 H0Z" fill="#70e1be" opacity=".06"/></svg><span>ILLUSTRATIVE MARKET VIEW</span></div>
+<div class="brand-features"><p><b>01</b> Shared, admin-managed results</p><p><b>02</b> Secure authenticator sign-in</p><p><b>03</b> A dashboard built for focus</p></div></div>
+<footer>One market view. Your own secure access.</footer></aside>
+<section class="auth-main"><div class="auth-card">
+<span class="section-kicker" id="formKicker">WELCOME BACK</span><h2 id="formTitle">Sign in to your dashboard</h2><p class="muted" id="formIntro">Use your email and password, then confirm with Google Authenticator.</p>
+<form id="identityForm">
+<label id="nameField" hidden>Your name<input id="name" autocomplete="name" maxlength="80" placeholder="Your full name"></label>
+<label>Email address<input id="email" type="email" autocomplete="username" maxlength="254" required placeholder="you@example.com"></label>
+<label>Password<input id="password" type="password" autocomplete="current-password" maxlength="128" required placeholder="Enter your password"></label>
+<label id="confirmField" hidden>Confirm password<input id="confirmPassword" type="password" autocomplete="new-password" maxlength="128" placeholder="Repeat your password"></label>
+<p class="hint" id="signupHelp" hidden>Use at least 12 characters. After authenticator setup, an admin will review your account before access is enabled.</p>
+<button class="primary-button" id="identitySubmit" type="submit">Continue securely <span>→</span></button>
+</form>
+<form id="otpForm" hidden><div id="enrollment" hidden><p class="muted">In Google Authenticator, tap <b>+</b> → <b>Scan a QR code</b>. Keep this setup key private.</p><img id="qr" class="qr" alt="Scan this QR code with Google Authenticator"><details><summary>Cannot scan? Enter a setup key</summary><code id="setupKey"></code><p class="hint">Choose a time-based key in your authenticator.</p></details></div>
+<label>6-digit authenticator code<input id="otp" class="otp-input" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required placeholder="000000"></label>
+<button class="primary-button" id="otpSubmit" type="submit">Verify & continue <span>→</span></button><a class="back-link" href="/login">Start again</a></form>
+<p id="authMessage" class="form-message" role="status" aria-live="polite"></p>
+<p class="switch-link" id="switchLink">New here? <a href="/signup">Create an account</a></p>
+<div class="security-note"><span>◈</span><p>Password + authenticator protection.<br>Your broker credentials are never required.</p></div>
+<p class="hint recovery-note">Lost access to your authenticator? Contact the administrator for account recovery.</p>
+</div></section></main></body></html>

@@ -63,6 +63,7 @@ class MessageOut(BaseModel):
 
 
 class ConfigOut(BaseModel):
+    display_filters: dict | None = None
     volume_filters: VolumeFilterSettings = Field(default_factory=VolumeFilterSettings)
     has_credentials: bool
     client_id: str
@@ -173,6 +174,7 @@ class StockRow(QualificationFields):
 
 
 class StateOut(BaseModel):
+    display_filters: dict | None = None
     algo: dict = Field(default_factory=dict)
     volume_filters: VolumeFilterSettings = Field(default_factory=VolumeFilterSettings)
     running: bool

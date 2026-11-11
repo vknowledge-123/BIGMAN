@@ -31,7 +31,7 @@ def relative(path):
 def models():
     from pydantic import BaseModel
     result = {}
-    for module_name in ('app.schemas', 'app.preopen', 'app.algo_strategy'):
+    for module_name in ('app.schemas', 'app.preopen', 'app.algo_strategy', 'app.accounts', 'app.access'):
         module = importlib.import_module(module_name)
         for name, value in vars(module).items():
             if (inspect.isclass(value) and value.__module__ == module_name
@@ -40,20 +40,20 @@ def models():
     return result
 
 
-def route_inventory(tree):
+def route_inventory(tree, source):
     routes = []
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
             if not (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)
-                    and isinstance(decorator.func.value, ast.Name) and decorator.func.value.id == 'app'
+                    and isinstance(decorator.func.value, ast.Name) and decorator.func.value.id in ('app', 'admin_api', 'router')
                     and decorator.func.attr in ('get', 'post', 'put', 'patch', 'delete')):
                 continue
             response = next((ast.unparse(k.value) for k in decorator.keywords if k.arg == 'response_model'), 'dynamic / HTML')
             routes.append({'method': decorator.func.attr.upper(), 'path': ast.literal_eval(decorator.args[0]),
                            'handler': node.name, 'parameters': ast.unparse(node.args),
-                           'response_model': response, 'source_line': node.lineno})
+                           'response_model': response, 'source': source, 'source_line': node.lineno})
     return routes
 
 
@@ -72,19 +72,20 @@ def main():
                             'circuit_enabled': True, 'circuit_min_percent': 20, 'circuit_scope': 'live'},
         'browser_algo_policy': {'mode_on_load': 'paper', 'sizing': 'capital',
                                'reference': 'original', 'reversal_size': 'initial'},
+        'shared_display': all_models['DisplaySettings']().model_dump(),
         'pending_not_current': [],
     })
-    routes = route_inventory(ast.parse(read(ROOT / 'app/main.py')))
+    routes = [r for source in ('app/main.py', 'app/access.py') for r in route_inventory(ast.parse(read(ROOT / source)), source)]
     dump('API_ROUTES.json', routes)
     parts = ['# Interfaces and source map', '',
-             'Generated from the main source on 8 November 2026. No runtime account or cache data was read.', '',
+             'Generated from the main source on 11 November 2026. No runtime account or cache data was read.', '',
              'This file complements PROJECT_SPECIFICATION.md. Line references identify this snapshot and can change after edits.', '',
              '## HTTP route inventory', '',
              '| Method | Path | Handler parameters | Response model | Source |',
              '|---|---|---|---|---|']
     for row in routes:
-        parts.append(f"| {row['method']} | `{row['path']}` | `{row['handler']}({row['parameters']})` | `{row['response_model']}` | app/main.py:{row['source_line']} |")
-    parts += ['', 'FastAPI also serves its standard /docs, /redoc and /openapi.json surfaces. Static resources are mounted at /static.', '',
+        parts.append(f"| {row['method']} | `{row['path']}` | `{row['handler']}({row['parameters']})` | `{row['response_model']}` | {row['source']}:{row['source_line']} |")
+    parts += ['', 'Public /docs and /redoc are disabled; /openapi.json requires an admin. /health exposes only application identity. Static assets are mounted at /static; direct static HTML is blocked.', '',
               '## Exact model field inventory', '',
               'The JSON schema sidecar is authoritative for validation constraints and unions. Fields inherited from base models are included below. These are code defaults, not saved account settings.', '']
     for name, model in all_models.items():
@@ -168,7 +169,7 @@ def main():
     files = [{'path': relative(p), 'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()}
              for p in paths if p.is_file()]
     commit = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=ROOT, capture_output=True, text=True).stdout.strip()
-    dump('SOURCE_MANIFEST.json', {'document_date_ist': '2026-11-08', 'git_head': commit,
+    dump('SOURCE_MANIFEST.json', {'document_date_ist': '2026-11-11', 'git_head': commit,
          'snapshot_note': 'Working source includes uncommitted changes. Per-file hashes, not HEAD alone, identify the documented baseline.',
          'scope': 'Application, tests, launch scripts, requirements and README only; no data/ or account files.', 'files': files})
     print(json.dumps({'models': len(all_models), 'routes': len(routes), 'source_files': len(files),

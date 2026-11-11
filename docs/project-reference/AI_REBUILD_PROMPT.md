@@ -36,3 +36,7 @@ If a detail is unclear, record the ambiguity and make it reviewable. Do not sile
 ---
 
 For rebuilding a later project version, replace this pack with documentation generated from that version. The manifest identifies the source files described here; a Git commit alone is insufficient when there are uncommitted changes.
+
+Account requirements: implement MEMBER_HOSTING.md in addition to the scanner specification. Both roles require email/password and TOTP; members require admin approval and have server-enforced read-only access. Only the central admin server holds Dhan credentials and runs market feeds. No default accounts or passwords.
+
+Security requirements: implement SECURITY.md, including layered authentication/request limits, bounded input parsing, protected schema, non-reflective validation errors and the updated dependencies. Preserve scanner and order execution rules.

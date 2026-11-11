@@ -228,7 +228,7 @@ function fmtSignalBadge(row, reason) {
   if (row.possible_candidate && hasSmallOpeningGap(row)) badges.push(`<span class="candidate-badge" title="Absolute difference between first candle open and previous trading day close is at most 3.5%. Independent of the Open / Previous Close filter setting.">under_3.5%</span>`);
   const resistanceDetail = escapeHtml(`Daily swing high ${fmtNumber(row.resistance_level, 2)} on ${row.resistance_date || '--'}; ${row.resistance_age ?? '--'} trading days old; breakout above ${fmtNumber(row.resistance_threshold, 2)}. Live uses current LTP; backtests use a completed green candle close.`);
   if (row.possible_candidate && row.resistance_break) badges.push(`<span class="candidate-badge" title="${resistanceDetail}">resistance break</span>`);
-  if (row.possible_candidate && row.resistance_break_open) badges.push(`<span class="candidate-badge" title="${resistanceDetail} Candle ${row.resistance_break_open_candle}: open below resistance, crossed above within that candle; replay requires close above.">resistance_break_open · candle ${row.resistance_break_open_candle}</span>`);
+  if (row.possible_candidate && row.resistance_break_open) badges.push(`<span class="candidate-badge" title="${resistanceDetail} Candle ${escapeHtml(row.resistance_break_open_candle)}: open below resistance, crossed above within that candle; replay requires close above.">resistance_break_open · candle ${escapeHtml(row.resistance_break_open_candle)}</span>`);
   if (row.possible_candidate && row.first_candle_high_break) badges.push(`<span class="candidate-badge" title="A later trade exceeded the first candle's high; this badge remains after the break">First Candle High Break</span>`);
   if (row.retest_break) badges.push(`<span class="candidate-badge retest-badge" title="${escapeHtml(row.retest_reason || '')}">Retest Break${row.retest_break_at ? ` · ${fmtTime(row.retest_break_at).slice(0, 5)}` : ''}</span>`);
   if (row.possible_candidate && row.first_open_equals_low) badges.push(`<span class="candidate-badge" title="First candle open equals its low">open ==low</span>`);
@@ -252,13 +252,14 @@ function fmtCircuitDistance(row, side) {
 }
 
 async function api(path, options = {}, timeoutMs = 0) {
+  if (window.sessionReady) await window.sessionReady;
   const controller = timeoutMs ? new AbortController() : null;
   const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
   try {
     const response = await fetch(path, {
       cache: "no-store",
-      headers: { "Content-Type": "application/json" },
       ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}), ...(window.sessionUser ? {"X-CSRF-Token": window.sessionUser.csrf} : {}) },
       ...(controller ? { signal: controller.signal } : {}),
     });
     const payload = await response.json().catch((error) => {
@@ -266,6 +267,7 @@ async function api(path, options = {}, timeoutMs = 0) {
       return {};
     });
     if (!response.ok) {
+      if (response.status === 401 && window.location) window.location.href = "/login";
       const detail = payload.detail || payload.message;
       const message = Array.isArray(detail)
         ? detail.map(item => `${(item.loc || []).filter(part => part !== 'body').join('.')}: ${item.msg || 'Invalid value'}`).join('; ')
@@ -424,6 +426,7 @@ function compareLiveStocks(a, b) {
 }
 
 function renderState(state) {
+  if (window.syncSharedDisplay && state.display_filters) window.syncSharedDisplay(state.display_filters);
   lastLiveState = state;
   updateAlgoBacktestStale();
   renderAlgo(state.algo);
@@ -1028,10 +1031,10 @@ function renderAlgo(data) {
     const target = side ? reference * (1 + side * c.target_pct / 100) : null;
     return `<article class="algo-session" data-mode="${escapeHtml(row.mode)}">
       <strong>${escapeHtml(row.symbol)} &middot; ${escapeHtml(row.mode.toUpperCase())} &middot; ${escapeHtml(row.status)} &middot; ${escapeHtml(row.session_date)}</strong>
-      <p>App quantity ${s.net_qty} &middot; Broker quantity ${row.broker_qty ?? '--'} &middot; Initial quantity ${s.base_qty} &middot; Original entry ${fmtNumber(s.original)} &middot; Average ${fmtNumber(s.average)} &middot; Target ${fmtNumber(target)} &middot; Stop ${fmtNumber(s.stop)} &middot; Adds ${s.adds}/${c.max_adds} &middot; Reversals ${s.reversals}/${c.max_reversals} &middot; P&amp;L &#8377;${fmtNumber(row.pnl ?? s.realized - s.fees)}</p>
-      <p>${escapeHtml(row.message || '')}${pending ? ` &middot; Order ${escapeHtml(pending.order_id || pending.correlation)}: ${escapeHtml(pending.state)}, ${pending.filled_qty}/${Math.abs(pending.delta)} filled` : ''}</p>
-      ${row.status !== 'done' ? `<button type="button" data-algo-session="${row.id}" data-algo-action="exit">Exit &amp; Stop</button>${row.status === 'paused' ? `<button type="button" data-algo-session="${row.id}" data-algo-action="resume">Reconcile &amp; Resume</button>` : ''}` : ''}
-      <details data-session="${row.id}" ${openDetails.has(row.id) ? 'open' : ''}><summary>Fills &amp; session settings</summary><p>First ladder ${s.initial_side > 0 ? 'Long' : 'Short'} &middot; Capital &#8377;${fmtNumber(c.capital)} &middot; TG ${c.target_pct}% &middot; SL ${c.stop_pct}% &middot; TSL ${c.trailing ? c.trailing_pct + '%' : 'off'} &middot; Ladder ${c.ladder ? 'on' : 'off'} &middot; Pyramiding ${c.pyramiding ? 'on' : 'off'} &middot; Square-off ${escapeHtml(c.square_off)} IST</p>${algoFills(s.fills || [])}</details>
+      <p>App quantity ${escapeHtml(s.net_qty)} &middot; Broker quantity ${escapeHtml(row.broker_qty ?? '--')} &middot; Initial quantity ${escapeHtml(s.base_qty)} &middot; Original entry ${fmtNumber(s.original)} &middot; Average ${fmtNumber(s.average)} &middot; Target ${fmtNumber(target)} &middot; Stop ${fmtNumber(s.stop)} &middot; Adds ${escapeHtml(s.adds)}/${escapeHtml(c.max_adds)} &middot; Reversals ${escapeHtml(s.reversals)}/${escapeHtml(c.max_reversals)} &middot; P&amp;L &#8377;${fmtNumber(row.pnl ?? s.realized - s.fees)}</p>
+      <p>${escapeHtml(row.message || '')}${pending ? ` &middot; Order ${escapeHtml(pending.order_id || pending.correlation)}: ${escapeHtml(pending.state)}, ${escapeHtml(pending.filled_qty)}/${Math.abs(pending.delta)} filled` : ''}</p>
+      ${row.status !== 'done' ? `<button type="button" data-algo-session="${escapeHtml(row.id)}" data-algo-action="exit">Exit &amp; Stop</button>${row.status === 'paused' ? `<button type="button" data-algo-session="${escapeHtml(row.id)}" data-algo-action="resume">Reconcile &amp; Resume</button>` : ''}` : ''}
+      <details data-session="${escapeHtml(row.id)}" ${openDetails.has(row.id) ? 'open' : ''}><summary>Fills &amp; session settings</summary><p>First ladder ${s.initial_side > 0 ? 'Long' : 'Short'} &middot; Capital &#8377;${fmtNumber(c.capital)} &middot; TG ${escapeHtml(c.target_pct)}% &middot; SL ${escapeHtml(c.stop_pct)}% &middot; TSL ${c.trailing ? c.trailing_pct + '%' : 'off'} &middot; Ladder ${c.ladder ? 'on' : 'off'} &middot; Pyramiding ${c.pyramiding ? 'on' : 'off'} &middot; Square-off ${escapeHtml(c.square_off)} IST</p>${algoFills(s.fills || [])}</details>
     </article>`;
   }).join('') || '<p>No algo sessions. Select a stock from the scanner results.</p>';
 }
@@ -1099,7 +1102,7 @@ qs('#algoBacktestForm').addEventListener('submit', async event => {
       <p>First ladder: ${result.strategy.initial_side > 0 ? 'Long' : 'Short'} &middot; Entry time: ${escapeHtml(result.start_time)}</p>
       <p>${escapeHtml(result.model)}${result.truncated ? ' INCOMPLETE SESSION: closed at the last available candle; not a full-day result.' : ''}</p>
       <p>Filters used: ${escapeHtml(filterDescription(result.volume_filters))}</p>
-      ${algoFills(result.strategy.fills)}<details><summary>Strategy actions</summary>${result.actions.map(a => `<p>${escapeHtml(a.time)} &middot; ${escapeHtml(a.reason)} &middot; intended net ${a.desired}</p>`).join('')}</details>`;
+      ${algoFills(result.strategy.fills)}<details><summary>Strategy actions</summary>${result.actions.map(a => `<p>${escapeHtml(a.time)} &middot; ${escapeHtml(a.reason)} &middot; intended net ${escapeHtml(a.desired)}</p>`).join('')}</details>`;
     lastAlgoBacktestInputs = inputs;
     lastAlgoBacktestFilters = filterDescription(result.volume_filters);
     updateAlgoBacktestStale();

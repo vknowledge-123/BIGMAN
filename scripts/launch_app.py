@@ -19,7 +19,7 @@ def app_ready(url=URL):
     # Local traffic must not be sent through a configured corporate/web proxy.
     try:
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(url + "/openapi.json", timeout=1) as response:
+        with opener.open(url + "/health", timeout=1) as response:
             schema = json.load(response)
             info = schema.get("info") if isinstance(schema, dict) else None
             return isinstance(info, dict) and info.get("title") == "Dhan Turnover Scanner"
@@ -76,7 +76,7 @@ def main():
         if sys.version_info < (3, 10):
             print("Python 3.10 or newer is required.")
             return 1
-        missing = [name for name in ("uvicorn", "fastapi", "pydantic", "dhanhq", "pandas", "requests")
+        missing = [name for name in ("uvicorn", "fastapi", "pydantic", "dhanhq", "pandas", "requests", "argon2", "cryptography", "pyotp", "qrcode")
                    if importlib.util.find_spec(name) is None]
         if missing:
             print("Missing Python packages: " + ", ".join(missing))
@@ -88,7 +88,7 @@ def main():
         print("Keep this window open while using the scanner or algos.", flush=True)
         print("To close the app: finish/exit active algos in the dashboard, then press Ctrl+C here.", flush=True)
         threading.Thread(target=open_when_ready, args=(stopped,), daemon=True).start()
-        server = uvicorn.Server(uvicorn.Config("app.main:app", host=HOST, port=PORT, log_level="info"))
+        server = uvicorn.Server(uvicorn.Config("app.main:app", host=HOST, port=PORT, log_level="info", server_header=False, proxy_headers=False, h11_max_incomplete_event_size=16384))
         server.run(sockets=[listener])
         return 0 if server.started else 1
     except KeyboardInterrupt:

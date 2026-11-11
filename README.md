@@ -2,6 +2,18 @@
 
 FastAPI dashboard for scanning NSE stocks by live percent change and latest completed 1-minute candle turnover.
 
+## Admin and member accounts
+
+Email/password plus Google Authenticator is required for both roles. New members need admin approval, then see a read-only Possible Candidate and Redwala dashboard. All market data uses the administrator's server-side Dhan credentials. Display filters are shared server settings.
+
+**First run:** install the updated requirements, then run `py scripts/manage_users.py create-admin --email your@email.com` on the host and complete authenticator enrollment at `/login`. There is no default password. For public access, host one server behind HTTPS and share its URL with members.
+
+See [account setup, approval, hosting and recovery](docs/MEMBER_HOSTING.md) for complete instructions.
+
+## Security and updates
+
+See [security protections, limits and hosting requirements](docs/SECURITY.md). Authentication and request throttling, bounded JSON/body processing, protected API discovery and audited dependency upgrades are included. Install requirements into `.venv` and restart the server to activate updates. Do not interrupt active live algos for deployment.
+
 ## What It Does
 
 - **Daily Resistance** (default OFF; Possible Candidates only): searches up to 60 completed trading sessions by default for a strict swing high with 2 lower highs before and 2 after. Eligible peak age is 4–60 trading sessions (yesterday = 1). Lookback, both swing counts, age bounds and breakout buffer are configurable. The nearest level at/above the previous close is selected; a subsequent daily close strictly above a peak retires it. Optional minimum pullback checks `(peak high - lowest later daily low) / peak high`; default OFF, value 3%. Equal neighbouring highs do not form a strict swing. Short listing histories are supported; no eligible peak is a resolved rejection, missing/invalid history remains pending.
@@ -49,7 +61,7 @@ FastAPI dashboard for scanning NSE stocks by live percent change and latest comp
 - Shows setup badges beneath each stock symbol in a pinned column, visible without horizontal scrolling. The five candle turnover cards fit the viewport and wrap on small screens.
 - Adds an `F&O` badge for symbols in the configured F&O universe.
 - Shows live `UC Away % = (upper circuit - LTP) / LTP * 100` and `LC Away % = (LTP - lower circuit) / LTP * 100` for qualifying stocks, including `redwala gira`. At LTP 100, limits 101/90 mean 1%/10% away.
-- **Only circuit band ≥20% · Live** defaults ON. A live row is displayed only when both fresh Dhan circuit prices match a recognized fixed band of at least 20% around the same reference close. The reference is quote `last_price - net_change`, falling back only to valid daily history prepared for the current session. Both limits are checked against standard 2/5/10/20% bands with a small rounding allowance (at most ₹0.05, capped at 0.1% of reference); asymmetric/unrecognized ranges remain unverified. This is validation against Dhan's returned prices, not an independent exchange certification. Known F&O symbols are treated as dynamic and hidden, using the app's existing static classification list. Lower bands, unknown, inconsistent, previous-date and stale quotes are hidden. UC/LC distances remain relative to LTP: reference ₹100, limits ₹120/₹80, LTP ₹110 is a verified 20% band with distances 9.09%/27.27%. Existing badge priority and turnover order remain unchanged. Hidden counts are shown separately from scanner qualification totals. The toggle applies immediately and is remembered in this browser; turning it OFF restores other matches. It does not change scanner qualification, running algos or historical backtests. The worker checks for newly eligible stocks every two seconds while each stock retains its 60-second refresh interval and the shared 1.05-second quote throttle. Historical circuit bands are unavailable, so today's bands are never applied to past dates.
+- **Only circuit band ≥20% · Live** defaults ON. A live row is displayed only when both fresh Dhan circuit prices match a recognized fixed band of at least 20% around the same reference close. The reference is quote `last_price - net_change`, falling back only to valid daily history prepared for the current session. Both limits are checked against standard 2/5/10/20% bands with a small rounding allowance (at most ₹0.05, capped at 0.1% of reference); asymmetric/unrecognized ranges remain unverified. This is validation against Dhan's returned prices, not an independent exchange certification. Known F&O symbols are treated as dynamic and hidden, using the app's existing static classification list. Lower bands, unknown, inconsistent, previous-date and stale quotes are hidden. UC/LC distances remain relative to LTP: reference ₹100, limits ₹120/₹80, LTP ₹110 is a verified 20% band with distances 9.09%/27.27%. Existing badge priority and turnover order remain unchanged. Hidden counts are shown separately from scanner qualification totals. The toggle applies immediately and is saved centrally for every dashboard; turning it OFF restores other matches. It does not change scanner qualification, running algos or historical backtests. The worker checks for newly eligible stocks every two seconds while each stock retains its 60-second refresh interval and the shared 1.05-second quote throttle. Historical circuit bands are unavailable, so today's bands are never applied to past dates.
 - Fetches limits through Dhan's full quote SDK in batches after candidate checks and every 60 seconds while live. Distances recalculate with LTP updates. Quote requests share a one-request-per-second throttle; failed quotes retry on the next refresh, without affecting badges or eligibility.
 - Missing, invalid, previous-date or over-two-minute-old circuit quotes show `--`; a value of 0% means price is at the limit, not necessarily locked there. Circuit prices are not persisted or used in backtests, since historical candles do not include historical circuit bands.
 - If Dhan labels the first market candle as `9:14`, the scanner uses that candle as the first candle.
@@ -105,7 +117,7 @@ The double-click launcher runs without auto-reload. Finish/exit active algos in 
 For development with automatic reload:
 
 ```powershell
-py -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+py -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
 Or start it in the background:

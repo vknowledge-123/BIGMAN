@@ -38,15 +38,28 @@ const stocks = [
     await page.addInitScript(() => localStorage.setItem('scanner.dashboardCircuit.v1', 'false')); // Legacy non-circuit fixtures.
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/api/**', route => {
+    let display = {settings:{volume_enabled:false,volume_min:100000,price_enabled:false,price_max:250,circuit_enabled:false,setup:'all'},revision:0};
+    await page.route('**/*', route => {
+      const requestPath = new URL(route.request().url()).pathname;
+      if (!requestPath.startsWith('/api/')) {
+        const file = requestPath === '/' ? 'index.html' : path.basename(requestPath);
+        const body = require('node:fs').readFileSync(path.join(__dirname, '../app/static', file));
+        return route.fulfill({body,contentType:file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'text/html'});
+      }
       const pathname = new URL(route.request().url()).pathname;
       let payload = { ok: true, message: 'Test request completed' };
       if (pathname === '/api/config') payload = { client_id: '', symbols_text: 'COALINDIA\nBIRLACABLE', cached_volume_count: 3 };
       if (pathname === '/api/state') payload = { stocks, status: 'Idle', running: false, connected: false, unresolved_symbols: [], updated_at: '2026-10-01T09:25:00+05:30' };
       if (pathname === '/api/backtest') payload = { stocks, target_date: '2026-10-01', tested_count: 3, qualified_count: 2, candidate_count: 1, redwala_count: 1, error_count: 0 };
+      if (pathname === '/api/auth/me') payload = {name:'Admin',role:'admin',status:'active',csrf:'test'};
+      if (pathname === '/api/admin/users') payload = {users:[]};
+      if (pathname === '/api/display-settings') {
+        if (route.request().method() === 'POST') display={settings:route.request().postDataJSON(),revision:display.revision+1};
+        payload=display;
+      }
       return route.fulfill({ json: payload });
     });
-    await page.goto(process.env.APP_URL || 'http://127.0.0.1:8011');
+    await page.goto('http://scanner.test');
     await page.locator('#stockRows .symbol').first().waitFor();
     assert.equal(await page.locator('#stockRows > tr').count(), 4);
     assert.equal(await page.locator('#stockRows > tr').first().locator('td').count(), 18);

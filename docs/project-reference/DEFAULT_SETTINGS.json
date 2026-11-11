@@ -71,5 +71,13 @@
     "reference": "original",
     "reversal_size": "initial"
   },
+  "shared_display": {
+    "volume_enabled": false,
+    "volume_min": 100000,
+    "price_enabled": false,
+    "price_max": 250,
+    "circuit_enabled": true,
+    "setup": "all"
+  },
   "pending_not_current": []
 }

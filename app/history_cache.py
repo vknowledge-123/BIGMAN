@@ -5,13 +5,24 @@ from datetime import date
 import json
 import sqlite3
 import threading
+import os
+from weakref import WeakValueDictionary
+
+
+_locks = WeakValueDictionary()
+_locks_guard = threading.Lock()
 
 
 class HistoryCache:
     def __init__(self, path: Path):
         self.path = path
         self._ready = False
-        self._lock = threading.RLock()
+        # Multiple ConfigStore instances can open the same database concurrently.
+        # Share their lock, including WAL/schema initialization (which can fail
+        # immediately with SQLITE_BUSY even with a connection busy timeout).
+        key = os.path.normcase(str(path.resolve()))
+        with _locks_guard:
+            self._lock = _locks.setdefault(key, threading.RLock())
 
     @contextmanager
     def connection(self):

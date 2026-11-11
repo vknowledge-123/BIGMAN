@@ -157,6 +157,7 @@ def test_scanner_controls_cache_filters_and_backtest_in_browser(integration):
             page.locator('#backtestButton').click()
             pw.expect(page.locator('#backtestButton')).to_be_enabled()
             pw.expect(page.locator('#backtestRows .redwala-badge')).to_have_count(0)
+            page.wait_for_function('!displayDirty && !displaySending')
             page.reload()
             pw.expect(page.locator('#clientId')).to_have_value('test')
             pw.expect(page.locator('#credentialsStatus')).to_contain_text('Credentials saved')
@@ -213,6 +214,7 @@ def test_dashboard_volume_display_filter_in_browser(integration):
             page.locator('#dashboardVolumeMin').fill(str(int(threshold)))
             page.locator('#dashboardVolumeEnabled').check()
             pw.expect(page.locator('#stockRows')).to_contain_text('No setups have first-candle volume strictly above')
+            page.wait_for_function('!displayDirty && !displaySending')
             page.reload()
             pw.expect(page.locator('#dashboardVolumeEnabled')).to_be_checked()
             pw.expect(page.locator('#dashboardVolumeMin')).to_have_value(str(int(threshold)))
@@ -236,12 +238,13 @@ def test_dashboard_volume_display_filter_in_browser(integration):
             pw.expect(page.locator('#backtestRows')).to_contain_text('redwala gira')
             page.locator('#dashboardPriceMax').fill(str(close-0.01))
             pw.expect(page.locator('#backtestRows')).to_contain_text('No setups match the display filters')
+            page.wait_for_function('!displayDirty && !displaySending')
             page.reload()
             pw.expect(page.locator('#dashboardPriceEnabled')).to_be_checked()
             pw.expect(page.locator('#dashboardPriceMax')).to_have_value(str(close-0.01))
             page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
             assert sum(row['qualifies_scan'] for row in ctx.http.get('/api/state').json()['stocks']) == qualified
-            assert not writes and not errors
+            assert set(writes) <= {'/api/display-settings'} and not errors
         finally:
             browser.close()

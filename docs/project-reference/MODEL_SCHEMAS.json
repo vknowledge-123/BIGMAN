@@ -510,6 +510,18 @@
       }
     },
     "properties": {
+      "display_filters": {
+        "anyOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Display Filters"
+      },
       "volume_filters": {
         "$ref": "#/$defs/VolumeFilterSettings"
       },
@@ -2806,6 +2818,18 @@
       }
     },
     "properties": {
+      "display_filters": {
+        "anyOf": [
+          {
+            "type": "object"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Display Filters"
+      },
       "algo": {
         "title": "Algo",
         "type": "object"
@@ -4849,6 +4873,144 @@
       "target_date"
     ],
     "title": "AlgoBacktest",
+    "type": "object"
+  },
+  "DisplaySettings": {
+    "additionalProperties": false,
+    "properties": {
+      "volume_enabled": {
+        "default": false,
+        "title": "Volume Enabled",
+        "type": "boolean"
+      },
+      "volume_min": {
+        "default": 100000,
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "title": "Volume Min",
+        "type": "integer"
+      },
+      "price_enabled": {
+        "default": false,
+        "title": "Price Enabled",
+        "type": "boolean"
+      },
+      "price_max": {
+        "default": 250,
+        "minimum": 0.0,
+        "title": "Price Max",
+        "type": "number"
+      },
+      "circuit_enabled": {
+        "default": true,
+        "title": "Circuit Enabled",
+        "type": "boolean"
+      },
+      "setup": {
+        "default": "all",
+        "enum": [
+          "all",
+          "possible",
+          "redwala",
+          "retest"
+        ],
+        "title": "Setup",
+        "type": "string"
+      }
+    },
+    "title": "DisplaySettings",
+    "type": "object"
+  },
+  "Login": {
+    "additionalProperties": false,
+    "properties": {
+      "email": {
+        "maxLength": 254,
+        "minLength": 3,
+        "title": "Email",
+        "type": "string"
+      },
+      "password": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Password",
+        "type": "string"
+      }
+    },
+    "required": [
+      "email",
+      "password"
+    ],
+    "title": "Login",
+    "type": "object"
+  },
+  "Signup": {
+    "additionalProperties": false,
+    "properties": {
+      "email": {
+        "maxLength": 254,
+        "minLength": 3,
+        "title": "Email",
+        "type": "string"
+      },
+      "password": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Password",
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 80,
+        "minLength": 1,
+        "title": "Name",
+        "type": "string"
+      }
+    },
+    "required": [
+      "email",
+      "password",
+      "name"
+    ],
+    "title": "Signup",
+    "type": "object"
+  },
+  "Verify": {
+    "additionalProperties": false,
+    "properties": {
+      "challenge": {
+        "maxLength": 100,
+        "minLength": 20,
+        "title": "Challenge",
+        "type": "string"
+      },
+      "code": {
+        "maxLength": 6,
+        "minLength": 6,
+        "pattern": "^[0-9]{6}$",
+        "title": "Code",
+        "type": "string"
+      }
+    },
+    "required": [
+      "challenge",
+      "code"
+    ],
+    "title": "Verify",
+    "type": "object"
+  },
+  "StatusIn": {
+    "additionalProperties": false,
+    "properties": {
+      "status": {
+        "pattern": "^(active|suspended)$",
+        "title": "Status",
+        "type": "string"
+      }
+    },
+    "required": [
+      "status"
+    ],
+    "title": "StatusIn",
     "type": "object"
   }
 }

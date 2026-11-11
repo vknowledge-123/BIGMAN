@@ -1,6 +1,6 @@
 # Interfaces and source map
 
-Generated from the main source on 8 November 2026. No runtime account or cache data was read.
+Generated from the main source on 11 November 2026. No runtime account or cache data was read.
 
 This file complements PROJECT_SPECIFICATION.md. Line references identify this snapshot and can change after edits.
 
@@ -8,28 +8,42 @@ This file complements PROJECT_SPECIFICATION.md. Line references identify this sn
 
 | Method | Path | Handler parameters | Response model | Source |
 |---|---|---|---|---|
-| GET | `/` | `dashboard()` | `dynamic / HTML` | app/main.py:57 |
-| GET | `/api/config` | `get_config()` | `ConfigOut` | app/main.py:69 |
-| POST | `/api/volume-filters` | `save_volume_filters(payload: VolumeFilterSettings)` | `MessageOut` | app/main.py:82 |
-| POST | `/api/credentials` | `save_credentials(payload: CredentialsIn)` | `MessageOut` | app/main.py:87 |
-| POST | `/api/symbols` | `save_symbols(payload: SymbolsIn)` | `MessageOut` | app/main.py:96 |
-| GET | `/api/preopen` | `get_preopen_import()` | `dynamic / HTML` | app/main.py:114 |
-| POST | `/api/preopen/preview` | `preview_preopen(payload: PreopenRequest)` | `dynamic / HTML` | app/main.py:119 |
-| POST | `/api/preopen/apply` | `apply_preopen(payload: PreopenRequest)` | `dynamic / HTML` | app/main.py:127 |
-| POST | `/api/cache` | `cache_data()` | `MessageOut` | app/main.py:144 |
-| POST | `/api/cache-volume` | `cache_volume_average()` | `MessageOut` | app/main.py:153 |
-| POST | `/api/backtest` | `run_backtest(payload: BacktestIn)` | `BacktestOut` | app/main.py:165 |
-| POST | `/api/start` | `start_scan()` | `MessageOut` | app/main.py:179 |
-| POST | `/api/stop` | `stop_scan()` | `MessageOut` | app/main.py:188 |
-| POST | `/api/repair` | `repair_missing()` | `MessageOut` | app/main.py:194 |
-| GET | `/api/state` | `get_state()` | `StateOut` | app/main.py:210 |
-| POST | `/api/algo/settings` | `save_algo_settings(payload: AlgoSettings)` | `MessageOut` | app/main.py:215 |
-| POST | `/api/algo/start` | `start_algo(payload: AlgoStart)` | `dynamic / HTML` | app/main.py:221 |
-| POST | `/api/algo/{session_id}/exit` | `exit_algo(session_id: str)` | `MessageOut` | app/main.py:230 |
-| POST | `/api/algo/{session_id}/resume` | `resume_algo(session_id: str)` | `MessageOut` | app/main.py:239 |
-| POST | `/api/algo/backtest` | `backtest_algo(payload: AlgoBacktest)` | `dynamic / HTML` | app/main.py:248 |
+| GET | `/health` | `health()` | `dynamic / HTML` | app/main.py:77 |
+| GET | `/openapi.json` | `protected_schema()` | `dynamic / HTML` | app/main.py:82 |
+| GET | `/` | `dashboard(user=Depends(access.optional_user))` | `dynamic / HTML` | app/main.py:108 |
+| GET | `/api/config` | `get_config()` | `ConfigOut` | app/main.py:124 |
+| POST | `/api/volume-filters` | `save_volume_filters(payload: VolumeFilterSettings)` | `MessageOut` | app/main.py:138 |
+| POST | `/api/credentials` | `save_credentials(payload: CredentialsIn)` | `MessageOut` | app/main.py:143 |
+| POST | `/api/symbols` | `save_symbols(payload: SymbolsIn)` | `MessageOut` | app/main.py:152 |
+| GET | `/api/preopen` | `get_preopen_import()` | `dynamic / HTML` | app/main.py:170 |
+| POST | `/api/preopen/preview` | `preview_preopen(payload: PreopenRequest)` | `dynamic / HTML` | app/main.py:175 |
+| POST | `/api/preopen/apply` | `apply_preopen(payload: PreopenRequest)` | `dynamic / HTML` | app/main.py:183 |
+| POST | `/api/cache` | `cache_data()` | `MessageOut` | app/main.py:200 |
+| POST | `/api/cache-volume` | `cache_volume_average()` | `MessageOut` | app/main.py:209 |
+| POST | `/api/backtest` | `run_backtest(payload: BacktestIn)` | `BacktestOut` | app/main.py:221 |
+| POST | `/api/start` | `start_scan()` | `MessageOut` | app/main.py:235 |
+| POST | `/api/stop` | `stop_scan()` | `MessageOut` | app/main.py:244 |
+| POST | `/api/repair` | `repair_missing()` | `MessageOut` | app/main.py:250 |
+| GET | `/api/state` | `get_state()` | `StateOut` | app/main.py:266 |
+| POST | `/api/algo/settings` | `save_algo_settings(payload: AlgoSettings)` | `MessageOut` | app/main.py:271 |
+| POST | `/api/algo/start` | `start_algo(payload: AlgoStart)` | `dynamic / HTML` | app/main.py:277 |
+| POST | `/api/algo/{session_id}/exit` | `exit_algo(session_id: str)` | `MessageOut` | app/main.py:286 |
+| POST | `/api/algo/{session_id}/resume` | `resume_algo(session_id: str)` | `MessageOut` | app/main.py:295 |
+| POST | `/api/algo/backtest` | `backtest_algo(payload: AlgoBacktest)` | `dynamic / HTML` | app/main.py:304 |
+| GET | `/login` | `auth_page(request: Request)` | `dynamic / HTML` | app/main.py:316 |
+| GET | `/signup` | `auth_page(request: Request)` | `dynamic / HTML` | app/main.py:316 |
+| GET | `/api/member/state` | `member_state(_=Depends(access.require_member))` | `dynamic / HTML` | app/main.py:322 |
+| POST | `/api/auth/signup` | `signup(payload: Signup, request: Request)` | `dynamic / HTML` | app/access.py:111 |
+| POST | `/api/auth/login` | `login(payload: Login, request: Request)` | `dynamic / HTML` | app/access.py:118 |
+| POST | `/api/auth/verify` | `verify(payload: Verify, request: Request, response: Response)` | `dynamic / HTML` | app/access.py:124 |
+| GET | `/api/auth/me` | `me(user=Depends(require_user))` | `dynamic / HTML` | app/access.py:132 |
+| POST | `/api/auth/logout` | `logout(request: Request, response: Response, user=Depends(require_user))` | `dynamic / HTML` | app/access.py:137 |
+| GET | `/api/admin/users` | `users(_=Depends(require_admin))` | `dynamic / HTML` | app/access.py:145 |
+| POST | `/api/admin/users/{uid}` | `user_status(uid: str, payload: StatusIn, user=Depends(require_admin))` | `dynamic / HTML` | app/access.py:155 |
+| GET | `/api/display-settings` | `display_get(_=Depends(require_admin))` | `dynamic / HTML` | app/access.py:161 |
+| POST | `/api/display-settings` | `display_save(payload: DisplaySettings, _=Depends(require_admin))` | `dynamic / HTML` | app/access.py:166 |
 
-FastAPI also serves its standard /docs, /redoc and /openapi.json surfaces. Static resources are mounted at /static.
+Public /docs and /redoc are disabled; /openapi.json requires an admin. /health exposes only application identity. Static assets are mounted at /static; direct static HTML is blocked.
 
 ## Exact model field inventory
 
@@ -95,6 +109,7 @@ The JSON schema sidecar is authoritative for validation constraints and unions. 
 
 | Field | Python type | Default | Validation metadata |
 |---|---|---|---|
+| `display_filters` | `dict \| None` | `None` | `[]` |
 | `volume_filters` | `<class 'app.schemas.VolumeFilterSettings'>` | `factory: VolumeFilterSettings` | `[]` |
 | `has_credentials` | `<class 'bool'>` | `REQUIRED` | `[]` |
 | `client_id` | `<class 'str'>` | `REQUIRED` | `[]` |
@@ -241,6 +256,7 @@ The JSON schema sidecar is authoritative for validation constraints and unions. 
 
 | Field | Python type | Default | Validation metadata |
 |---|---|---|---|
+| `display_filters` | `dict \| None` | `None` | `[]` |
 | `algo` | `<class 'dict'>` | `factory: dict` | `[]` |
 | `volume_filters` | `<class 'app.schemas.VolumeFilterSettings'>` | `factory: VolumeFilterSettings` | `[]` |
 | `running` | `<class 'bool'>` | `REQUIRED` | `[]` |
@@ -384,12 +400,107 @@ The JSON schema sidecar is authoritative for validation constraints and unions. 
 | `target_date` | `<class 'datetime.date'>` | `REQUIRED` | `[]` |
 | `start_time` | `<class 'str'>` | `'09:16'` | `[]` |
 
+### DisplaySettings
+
+| Field | Python type | Default | Validation metadata |
+|---|---|---|---|
+| `volume_enabled` | `<class 'bool'>` | `False` | `[]` |
+| `volume_min` | `<class 'int'>` | `100000` | `[Ge(ge=0), Le(le=9007199254740991)]` |
+| `price_enabled` | `<class 'bool'>` | `False` | `[]` |
+| `price_max` | `<class 'float'>` | `250` | `[Ge(ge=0), _PydanticGeneralMetadata(allow_inf_nan=False)]` |
+| `circuit_enabled` | `<class 'bool'>` | `True` | `[]` |
+| `setup` | `typing.Literal['all', 'possible', 'redwala', 'retest']` | `'all'` | `[]` |
+
+### Login
+
+| Field | Python type | Default | Validation metadata |
+|---|---|---|---|
+| `email` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=3), MaxLen(max_length=254)]` |
+| `password` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=1), MaxLen(max_length=128)]` |
+
+### Signup
+
+| Field | Python type | Default | Validation metadata |
+|---|---|---|---|
+| `email` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=3), MaxLen(max_length=254)]` |
+| `password` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=1), MaxLen(max_length=128)]` |
+| `name` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=1), MaxLen(max_length=80)]` |
+
+### Verify
+
+| Field | Python type | Default | Validation metadata |
+|---|---|---|---|
+| `challenge` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=20), MaxLen(max_length=100)]` |
+| `code` | `<class 'str'>` | `REQUIRED` | `[MinLen(min_length=6), MaxLen(max_length=6), _PydanticGeneralMetadata(pattern='^[0-9]{6}$')]` |
+
+### StatusIn
+
+| Field | Python type | Default | Validation metadata |
+|---|---|---|---|
+| `status` | `<class 'str'>` | `REQUIRED` | `[_PydanticGeneralMetadata(pattern='^(active\|suspended)$')]` |
+
 ## Python definitions by file
 
 Public and internal functions are listed to make the implementation navigable. Names alone are not a substitute for the behavioral specification.
 
 ### app/__init__.py
 
+
+### app/access.py
+
+Authentication endpoints and server-side role/CSRF enforcement.
+
+- `transport(request)` — line 21.
+- `public_write(request: Request)` — line 37.
+- `optional_user(request: Request)` — line 43.
+- `require_user(request: Request)` — line 48.
+- `csrf(request, user)` — line 55.
+- `require_admin(request: Request, user=Depends(require_user))` — line 61.
+- `require_member(user=Depends(require_user))` — line 69.
+- Class `Login` — line 75.
+- Class `Signup` — line 81.
+- Class `Verify` — line 85.
+- `limit(request, action, email=None)` — line 91.
+- `enrollment(result)` — line 101.
+- `signup(payload: Signup, request: Request)` — line 111.
+- `login(payload: Login, request: Request)` — line 118.
+- `verify(payload: Verify, request: Request, response: Response)` — line 124.
+- `me(user=Depends(require_user))` — line 132.
+- `logout(request: Request, response: Response, user=Depends(require_user))` — line 137.
+- `users(_=Depends(require_admin))` — line 145.
+- Class `StatusIn` — line 149.
+- `user_status(uid: str, payload: StatusIn, user=Depends(require_admin))` — line 155.
+- `display_get(_=Depends(require_admin))` — line 161.
+- `display_save(payload: DisplaySettings, _=Depends(require_admin))` — line 166.
+
+### app/accounts.py
+
+Local account database. Opaque sessions, Argon2 passwords and encrypted TOTP secrets.
+
+- Class `DisplaySettings` — line 21.
+- Class `AccountError` — line 31.
+  - `__init__(self, message, status=400)` — line 32.
+- `digest(value)` — line 37.
+- `email_address(value)` — line 41.
+- Class `Accounts` — line 48.
+  - `__init__(self, path)` — line 49.
+  - `db(self)` — line 58.
+  - `cipher(self)` — line 89.
+  - `password_work(self)` — line 108.
+  - `hash_password(self, password)` — line 117.
+  - `_throttle_db(db, key, maximum, seconds, now)` — line 122.
+  - `throttle(self, key, maximum, seconds=900)` — line 129.
+  - `create(self, email, password, name, *, admin=False)` — line 136.
+  - `audit(db, actor, subject, action)` — line 155.
+  - `password_login(self, email, password)` — line 158.
+  - `challenge(self, uid)` — line 171.
+  - `verify(self, token, code)` — line 190.
+  - `identity(self, token)` — line 222.
+  - `logout(self, token)` — line 235.
+  - `users(self)` — line 239.
+  - `status(self, uid, status, actor)` — line 243.
+  - `reset(self, email, *, password=None, mfa=False)` — line 259.
+  - `display(self, settings=None)` — line 276.
 
 ### app/algo_broker.py
 
@@ -727,38 +838,55 @@ Bounded shutdown for the scanner's SDK feed (separate from algo feeds).
 
 Small transactional cache updates, independent of credentials/settings JSON.
 
-- Class `HistoryCache` — line 10.
-  - `__init__(self, path: Path)` — line 11.
-  - `connection(self)` — line 17.
-  - `update(self, entries=None, closes=None, *, legacy=False)` — line 38.
-  - `load(self)` — line 57.
-  - `get(self, kind, instrument)` — line 65.
-  - `put(self, kind, instrument, value)` — line 70.
+- Class `HistoryCache` — line 16.
+  - `__init__(self, path: Path)` — line 17.
+  - `connection(self)` — line 28.
+  - `update(self, entries=None, closes=None, *, legacy=False)` — line 49.
+  - `load(self)` — line 68.
+  - `get(self, kind, instrument)` — line 76.
+  - `put(self, kind, instrument, value)` — line 81.
 
 ### app/main.py
 
-- `lifespan(_app: FastAPI)` — line 35.
-- `prevent_cached_api_state(request, call_next)` — line 47.
-- `dashboard()` — line 57.
-- `get_config()` — line 69.
-- `save_volume_filters(payload: VolumeFilterSettings)` — line 82.
-- `save_credentials(payload: CredentialsIn)` — line 87.
-- `save_symbols(payload: SymbolsIn)` — line 96.
-- `get_preopen_import()` — line 114.
-- `preview_preopen(payload: PreopenRequest)` — line 119.
-- `apply_preopen(payload: PreopenRequest)` — line 127.
-- `cache_data()` — line 144.
-- `cache_volume_average()` — line 153.
-- `run_backtest(payload: BacktestIn)` — line 165.
-- `start_scan()` — line 179.
-- `stop_scan()` — line 188.
-- `repair_missing()` — line 194.
-- `get_state()` — line 210.
-- `save_algo_settings(payload: AlgoSettings)` — line 215.
-- `start_algo(payload: AlgoStart)` — line 221.
-- `exit_algo(session_id: str)` — line 230.
-- `resume_algo(session_id: str)` — line 239.
-- `backtest_algo(payload: AlgoBacktest)` — line 248.
+- `lifespan(_app: FastAPI)` — line 40.
+- `account_error(request, exc)` — line 55.
+- `validation_error(request, exc)` — line 61.
+- `unexpected_error(request, exc)` — line 68.
+- `health()` — line 77.
+- `protected_schema()` — line 82.
+- `prevent_cached_api_state(request, call_next)` — line 87.
+- `dashboard(user=Depends(access.optional_user))` — line 108.
+- `get_config()` — line 124.
+- `save_volume_filters(payload: VolumeFilterSettings)` — line 138.
+- `save_credentials(payload: CredentialsIn)` — line 143.
+- `save_symbols(payload: SymbolsIn)` — line 152.
+- `get_preopen_import()` — line 170.
+- `preview_preopen(payload: PreopenRequest)` — line 175.
+- `apply_preopen(payload: PreopenRequest)` — line 183.
+- `cache_data()` — line 200.
+- `cache_volume_average()` — line 209.
+- `run_backtest(payload: BacktestIn)` — line 221.
+- `start_scan()` — line 235.
+- `stop_scan()` — line 244.
+- `repair_missing()` — line 250.
+- `get_state()` — line 266.
+- `save_algo_settings(payload: AlgoSettings)` — line 271.
+- `start_algo(payload: AlgoStart)` — line 277.
+- `exit_algo(session_id: str)` — line 286.
+- `resume_algo(session_id: str)` — line 295.
+- `backtest_algo(payload: AlgoBacktest)` — line 304.
+- `auth_page(request: Request)` — line 316.
+- `member_state(_=Depends(access.require_member))` — line 322.
+
+### app/member_view.py
+
+Shared, filtered, whitelisted read model. No broker calls or execution data.
+
+- `finite(value)` — line 17.
+- `filtered(rows, settings)` — line 21.
+- Class `PublishedDashboard` — line 51.
+  - `__init__(self)` — line 52.
+  - `snapshot(self, engine, display)` — line 58.
 
 ### app/opening_filters.py
 
@@ -806,12 +934,25 @@ Session-bound daily swing resistance. No intraday/future candles select a level.
 - Class `BacktestIn` — line 54.
 - Class `MessageOut` — line 60.
 - Class `ConfigOut` — line 65.
-- Class `DailyVolumeFilter` — line 74.
-- Class `QualificationFields` — line 95.
-- Class `StockRow` — line 126.
-- Class `StateOut` — line 175.
-- Class `BacktestRow` — line 186.
-- Class `BacktestOut` — line 209.
+- Class `DailyVolumeFilter` — line 75.
+- Class `QualificationFields` — line 96.
+- Class `StockRow` — line 127.
+- Class `StateOut` — line 176.
+- Class `BacktestRow` — line 188.
+- Class `BacktestOut` — line 211.
+
+### app/security.py
+
+Bounded HTTP ingress. Broker feeds and execution workers do not pass here.
+
+- Class `RequestLimits` — line 19.
+  - `__init__(self)` — line 21.
+  - `notice(self, status)` — line 26.
+  - `take(self, key, rate, burst)` — line 35.
+- `authorize_upload(request)` — line 53.
+- Class `SecurityMiddleware` — line 59.
+  - `__init__(self, app)` — line 60.
+  - `__call__(self, scope, receive, send)` — line 64.
 
 ### app/setup_price_filters.py
 
@@ -851,6 +992,12 @@ Double-click entry point: reuse a running app or run one foreground server.
 - `open_when_ready(stopped, url=URL)` — line 39.
 - `main()` — line 52.
 
+### scripts/manage_users.py
+
+Local operator CLI; never distributes passwords, TOTP secrets or broker data.
+
+- `main()` — line 11.
+
 ## Browser function and control inventory
 
 ### app/static/app.js
@@ -875,40 +1022,40 @@ Double-click entry point: reuse a running app or run one foreground server.
 - `fmtSignalBadge(row, reason)` — line 224.
 - `fmtCircuitDistance(row, side)` — line 243.
 - `api(path, options = {}, timeoutMs = 0)` — line 254.
-- `setBusy(button, busy)` — line 281.
-- `runAction(button, fn)` — line 285.
-- `restoreDashboardVolumeFilter()` — line 303.
-- `matchesDashboardVolume(row, backtest = false)` — line 314.
-- `applyDashboardVolumeFilter()` — line 319.
-- `matchesDashboardPrice(row, backtest = false)` — line 354.
-- `applyDashboardPriceFilter()` — line 359.
-- `displayFilterDescription(backtest = false)` — line 378.
-- `matchesDashboardCircuit(row)` — line 392.
-- `matchesSetup(row)` — line 402.
-- `dashboardPriority(row)` — line 411.
-- `compareLiveStocks(a, b)` — line 418.
-- `renderState(state)` — line 426.
-- `setActiveView(view)` — line 530.
-- `renderBacktest(result)` — line 541.
-- `backtestOpeningPrices(row)` — line 610.
-- `updateBacktestFiltersStatus()` — line 617.
-- `runBacktest()` — line 630.
-- `renderCredentialsStatus()` — line 680.
-- `refreshConfig()` — line 690.
-- `normalizedFilterSettings(settings = {})` — line 737.
-- `readFilterSettings()` — line 751.
-- `updateFilterChangesStatus()` — line 797.
-- `filterFormChanged(event)` — line 809.
-- `refreshState()` — line 817.
-- `saveFilterSettings(settings)` — line 825.
-- `algoBacktestPayload()` — line 956.
-- `updateAlgoBacktestStale()` — line 961.
-- `readAlgoSettings()` — line 980.
-- `algoRowButton(row, backtest)` — line 995.
-- `algoFirstSide(settings, setup)` — line 1001.
-- `algoFills(fills)` — line 1005.
-- `renderAlgo(data)` — line 1008.
-- `handleAlgoClick(event)` — line 1038.
+- `setBusy(button, busy)` — line 283.
+- `runAction(button, fn)` — line 287.
+- `restoreDashboardVolumeFilter()` — line 305.
+- `matchesDashboardVolume(row, backtest = false)` — line 316.
+- `applyDashboardVolumeFilter()` — line 321.
+- `matchesDashboardPrice(row, backtest = false)` — line 356.
+- `applyDashboardPriceFilter()` — line 361.
+- `displayFilterDescription(backtest = false)` — line 380.
+- `matchesDashboardCircuit(row)` — line 394.
+- `matchesSetup(row)` — line 404.
+- `dashboardPriority(row)` — line 413.
+- `compareLiveStocks(a, b)` — line 420.
+- `renderState(state)` — line 428.
+- `setActiveView(view)` — line 533.
+- `renderBacktest(result)` — line 544.
+- `backtestOpeningPrices(row)` — line 613.
+- `updateBacktestFiltersStatus()` — line 620.
+- `runBacktest()` — line 633.
+- `renderCredentialsStatus()` — line 683.
+- `refreshConfig()` — line 693.
+- `normalizedFilterSettings(settings = {})` — line 740.
+- `readFilterSettings()` — line 754.
+- `updateFilterChangesStatus()` — line 800.
+- `filterFormChanged(event)` — line 812.
+- `refreshState()` — line 820.
+- `saveFilterSettings(settings)` — line 828.
+- `algoBacktestPayload()` — line 959.
+- `updateAlgoBacktestStale()` — line 964.
+- `readAlgoSettings()` — line 983.
+- `algoRowButton(row, backtest)` — line 998.
+- `algoFirstSide(settings, setup)` — line 1004.
+- `algoFills(fills)` — line 1008.
+- `renderAlgo(data)` — line 1011.
+- `handleAlgoClick(event)` — line 1041.
 
 Browser preference identifiers: `scanner.dashboardCircuit.v1`, `scanner.dashboardPrice.v1`, `scanner.dashboardVolume.v1`.
 
@@ -923,6 +1070,7 @@ Browser preference identifiers: `scanner.dashboardCircuit.v1`, `scanner.dashboar
 
 | Element | ID | Input type |
 |---|---|---|
+| button | `logoutButton` | button |
 | form | `credentialsForm` | — |
 | input | `clientId` | — |
 | input | `accessToken` | password |
@@ -973,6 +1121,7 @@ Browser preference identifiers: `scanner.dashboardCircuit.v1`, `scanner.dashboar
 | button | `liveTab` | button |
 | button | `backtestTab` | button |
 | select | `setupFilter` | — |
+| button | `retryDisplaySave` | button |
 | input | `dashboardVolumeEnabled` | checkbox |
 | input | `dashboardVolumeMin` | number |
 | input | `dashboardPriceEnabled` | checkbox |
@@ -980,6 +1129,7 @@ Browser preference identifiers: `scanner.dashboardCircuit.v1`, `scanner.dashboar
 | input | `dashboardCircuitEnabled` | checkbox |
 | input | `backtestDate` | date |
 | button | `backtestButton` | button |
+| button | `refreshMembers` | button |
 | form | `algoSettingsForm` | — |
 | select | `algoMode` | — |
 | select | `algoFirstDirection` | — |

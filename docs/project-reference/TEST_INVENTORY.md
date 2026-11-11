@@ -4,7 +4,7 @@ Source-derived declarations, not a test execution or pass report. Parameterized 
 
 Read the behavioral acceptance matrix in PROJECT_SPECIFICATION.md before treating any suite as sufficient for deployment.
 
-Inventory totals: 296 Python test-function declarations and 46 named JavaScript test declarations. These are not collected-case or passing-case totals.
+Inventory totals: 314 Python test-function declarations and 46 named JavaScript test declarations. These are not collected-case or passing-case totals.
 
 ## tests/test_additional_opening_filters.py
 
@@ -212,7 +212,7 @@ Inventory totals: 296 Python test-function declarations and 46 named JavaScript 
 
 - `test_opening_gap_badge_uses_backend_prices_without_requiring_high_break` — line 12.
 - `test_scanner_controls_cache_filters_and_backtest_in_browser` — line 74.
-- `test_dashboard_volume_display_filter_in_browser` — line 180.
+- `test_dashboard_volume_display_filter_in_browser` — line 181.
 
 ## tests/test_dhan_contracts.py
 
@@ -257,6 +257,24 @@ Inventory totals: 296 Python test-function declarations and 46 named JavaScript 
 
 - `test_launcher_checks_server_identity_without_crashing` — line 15.
 - `test_launcher_unresponsive_server_is_not_ready` — line 22.
+
+## tests/test_member_access.py
+
+7 test function declarations.
+
+- `test_signup_mfa_approval_dashboard_and_suspension` — line 69.
+- `test_all_admin_endpoints_deny_member_and_anonymous` — line 88.
+- `test_admin_csrf_settings_and_member_status` — line 105.
+- `test_totp_replay_attempt_limits_encryption_and_reset` — line 122.
+- `test_expiration_and_lost_key_fail_closed` — line 142.
+- `test_rate_limit_and_transport` — line 157.
+- `test_shared_filters_and_exact_priority` — line 174.
+
+## tests/test_members_browser.py
+
+1 test function declarations.
+
+- `test_signup_approval_shared_dashboard_and_suspension` — line 21.
 
 ## tests/test_open_cross.py
 
@@ -376,6 +394,21 @@ Inventory totals: 296 Python test-function declarations and 46 named JavaScript 
 
 - `test_second_pdl_cross_live_backtest_and_schema` — line 22.
 - `test_second_cross_waits_for_close_and_requires_current_daily_levels` — line 41.
+
+## tests/test_security.py
+
+10 test function declarations.
+
+- `test_host_origin_and_public_schema` — line 21.
+- `test_bad_bodies_are_rejected_before_handlers` — line 43.
+- `test_header_url_method_bounds_and_private_files` — line 50.
+- `test_validation_never_echoes_password_or_totp` — line 60.
+- `test_persistent_account_login_limit_and_untrusted_forwarded_ip` — line 68.
+- `test_request_flood_limit_and_bounded_bucket_memory` — line 85.
+- `test_password_work_is_bounded_and_otp_budget_survives_new_challenges` — line 96.
+- `test_sql_injection_is_data_not_a_query` — line 118.
+- `test_streamed_body_size_and_timeout` — line 128.
+- `test_stored_script_payloads_render_as_text` — line 148.
 
 ## tests/test_setup_price_filters.py
 
